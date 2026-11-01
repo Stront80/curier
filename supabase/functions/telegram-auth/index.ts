@@ -1,0 +1,2 @@
+import { cors, json, requireProfile } from '../_shared/telegram.ts';
+Deno.serve(async req=>{if(req.method==='OPTIONS')return new Response('ok',{headers:cors});try{const {initData}=await req.json();const {profile}=await requireProfile(initData);return json({profile:{id:profile.id,telegram_id:profile.telegram_id,first_name:profile.first_name,username:profile.username,language:profile.language}})}catch(e){return json({error:e instanceof Error?e.message:'Authentication failed'},401)}});
