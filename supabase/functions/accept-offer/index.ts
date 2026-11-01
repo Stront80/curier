@@ -1,0 +1,2 @@
+import { cors, json, requireProfile } from '../_shared/telegram.ts';
+Deno.serve(async req=>{if(req.method==='OPTIONS')return new Response('ok',{headers:cors});try{const {initData,offer_id}=await req.json();if(!offer_id)return json({error:'offer_id required'},400);const {db,profile}=await requireProfile(initData);const {data,error}=await db.rpc('accept_offer_transaction',{p_offer_id:offer_id,p_customer_id:profile.id});if(error)throw error;return json({result:data})}catch(e){return json({error:e instanceof Error?e.message:'Could not accept offer'},400)}});
