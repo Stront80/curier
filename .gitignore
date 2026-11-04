@@ -3,3 +3,12 @@ dist
 .env
 .env.local
 .DS_Store
+
+# API secrets, build output, dependencies and backups
+api/.env
+api/.env.*
+!api/.env.example
+api/node_modules/
+api/dist/
+api/**/*.bak
+api/**/*.diag-backup
