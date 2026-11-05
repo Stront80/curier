@@ -274,17 +274,31 @@ app.get('/orders/:orderId/offers', requireAuth, async (req, res) => {
 
     const order = result.rows[0];
 
-    if (order.customer_id !== userId && order.courier_id !== userId) {
-      return res.status(403).json({ error: 'Not allowed to view offers' });
+    const isCustomer = order.customer_id === userId;
+    const isAssignedCourier = order.courier_id === userId;
+
+    if (!isCustomer && !isAssignedCourier) {
+      const ownOffer = await pool.query(
+        `SELECT 1 FROM public.offers
+         WHERE order_id = $1 AND courier_id = $2
+         LIMIT 1`,
+        [orderId, userId]
+      );
+
+      if (ownOffer.rowCount === 0) {
+        return res.status(403).json({ error: 'Not allowed to view offers' });
+      }
     }
 
     const offers = await pool.query(
-      `SELECT id, order_id, courier_id, amount, comment, status, created_at
+      `SELECT id, order_id, courier_id, proposer_id, parent_offer_id,
+              amount, comment, status, created_at
        FROM public.offers
        WHERE order_id = $1
+         AND ($2::boolean OR courier_id = $3)
        ORDER BY created_at DESC
        LIMIT 100`,
-      [orderId]
+      [orderId, isCustomer || isAssignedCourier, userId]
     );
 
     return res.json({ offers: offers.rows });
@@ -353,7 +367,11 @@ app.post('/orders/:orderId/offers', requireAuth, async (req, res) => {
     const existing = await client.query(
       `SELECT id FROM public.offers
        WHERE order_id = $1 AND courier_id = $2
-         AND status IN ('pending', 'countered')
+         AND status = 'pending'
+         AND NOT EXISTS (
+           SELECT 1 FROM public.offers child
+           WHERE child.parent_offer_id = public.offers.id
+         )
        LIMIT 1`,
       [orderId, userId]
     );
@@ -364,9 +382,11 @@ app.post('/orders/:orderId/offers', requireAuth, async (req, res) => {
     }
 
     const created = await client.query(
-      `INSERT INTO public.offers (order_id, courier_id, amount, comment)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, order_id, courier_id, amount, comment, status, created_at`,
+      `INSERT INTO public.offers
+         (order_id, courier_id, proposer_id, amount, comment)
+       VALUES ($1, $2, $2, $3, $4)
+       RETURNING id, order_id, courier_id, proposer_id, parent_offer_id,
+                 amount, comment, status, created_at`,
       [orderId, userId, price, comment?.trim() || null]
     );
 
@@ -419,6 +439,158 @@ app.post('/offers/:offerId/accept', requireAuth, async (req, res) => {
     return res.status(409).json({
       error: 'Offer could not be accepted'
     });
+  }
+});
+
+
+app.post('/offers/:offerId/counter', requireAuth, async (req, res) => {
+  const userId = (req as AuthenticatedRequest).userId!;
+  const offerId = req.params.offerId;
+  const { amount, comment } = req.body ?? {};
+  const price = Number(amount);
+
+  if (
+    typeof offerId !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(offerId)
+  ) {
+    return res.status(400).json({ error: 'Invalid offer ID' });
+  }
+
+  if (!Number.isFinite(price) || price <= 0 || price > 1000000000) {
+    return res.status(400).json({ error: 'Invalid amount' });
+  }
+
+  if (comment !== undefined && comment !== null &&
+      (typeof comment !== 'string' || comment.length > 1000)) {
+    return res.status(400).json({ error: 'Invalid comment' });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const targetResult = await client.query(
+      `SELECT f.id, f.order_id, f.courier_id, f.proposer_id,
+              f.status AS offer_status, o.customer_id, o.status AS order_status,
+              o.courier_id AS assigned_courier_id, o.early_access_until
+       FROM public.offers f
+       JOIN public.orders o ON o.id = f.order_id
+       JOIN public.profiles p ON p.id = $2 AND p.is_blocked = false
+       WHERE f.id = $1
+       FOR UPDATE OF f, o`,
+      [offerId, userId]
+    );
+
+    if (targetResult.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Offer not found' });
+    }
+
+    const target = targetResult.rows[0];
+    const isCustomer = target.customer_id === userId;
+    const isCourier = target.courier_id === userId;
+
+    if (!isCustomer && !isCourier) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Not an offer participant' });
+    }
+
+    const proposerIsExpectedParty = isCustomer
+      ? target.proposer_id === target.courier_id
+      : target.proposer_id === target.customer_id;
+
+    if (!proposerIsExpectedParty) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Offer participant mismatch' });
+    }
+
+    if (target.order_status !== 'open' && target.order_status !== 'negotiating') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Order is no longer negotiating' });
+    }
+
+    if (target.assigned_courier_id !== null) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Order already has a courier' });
+    }
+
+    if (isCourier && new Date(target.early_access_until).getTime() > Date.now()) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Early access period is active' });
+    }
+
+    if (target.offer_status !== 'pending' || target.proposer_id === userId) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Offer is no longer counterable' });
+    }
+
+    const latest = await client.query(
+      `SELECT 1
+       FROM public.offers f
+       WHERE f.id = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM public.offers child
+           WHERE child.parent_offer_id = f.id
+         )`,
+      [offerId]
+    );
+
+    if (latest.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Offer has already been countered' });
+    }
+
+    await client.query(
+      `UPDATE public.offers SET status = 'countered' WHERE id = $1`,
+      [offerId]
+    );
+
+    const created = await client.query(
+      `INSERT INTO public.offers
+         (order_id, courier_id, proposer_id, parent_offer_id, amount, comment)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, order_id, courier_id, proposer_id, parent_offer_id,
+                 amount, comment, status, created_at`,
+      [
+        target.order_id,
+        target.courier_id,
+        userId,
+        offerId,
+        price,
+        typeof comment === 'string' ? comment.trim() || null : null
+      ]
+    );
+
+    await client.query(
+      `UPDATE public.orders
+       SET status = 'negotiating', updated_at = now()
+       WHERE id = $1`,
+      [target.order_id]
+    );
+
+    await client.query(
+      `INSERT INTO public.order_events (order_id, actor_id, event_type, payload)
+       VALUES ($1, $2, 'offer_countered', $3::jsonb)`,
+      [
+        target.order_id,
+        userId,
+        JSON.stringify({
+          parent_offer_id: offerId,
+          offer_id: created.rows[0].id,
+          amount: price
+        })
+      ]
+    );
+
+    await client.query('COMMIT');
+    return res.status(201).json({ offer: created.rows[0] });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Counter offer failed:', error);
+    return res.status(500).json({ error: 'Could not create counter offer' });
+  } finally {
+    client.release();
   }
 });
 
