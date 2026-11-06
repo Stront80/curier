@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import pg from 'pg';
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const enabled = Boolean(connectionString);
 const pool = enabled ? new pg.Pool({ connectionString }) : null;
-const migration = await readFile(
+const migration = readFileSync(
   new URL('../migrations/004_blocked_user_offer_acceptance.sql', import.meta.url),
   'utf8'
 );
