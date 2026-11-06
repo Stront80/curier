@@ -13,6 +13,7 @@ DECLARE
   v_offer public.offers%ROWTYPE;
   v_order public.orders%ROWTYPE;
   v_latest_offer_id uuid;
+  v_active_participants integer;
 BEGIN
   -- The API JWT can remain valid after an account is blocked, so enforce
   -- account status inside this privileged transaction as well.
@@ -45,14 +46,12 @@ BEGIN
   END IF;
 
   -- Do not let an active customer accept an offer from a blocked courier.
-  PERFORM 1
+  SELECT count(*) INTO v_active_participants
   FROM public.profiles
   WHERE id IN (v_order.customer_id, v_offer.courier_id)
-    AND is_blocked = false
-  GROUP BY true
-  HAVING count(*) = 2;
+    AND is_blocked = false;
 
-  IF NOT FOUND THEN
+  IF v_active_participants <> 2 THEN
     RAISE EXCEPTION 'Offer participant unavailable';
   END IF;
 
