@@ -9,6 +9,7 @@ function signedInitData(options: {
   authDate?: number;
   user?: unknown;
   alterHash?: boolean;
+  duplicateAuthDate?: boolean;
 } = {}): string {
   const params = new URLSearchParams();
   params.set('auth_date', String(options.authDate ?? Math.floor(Date.now() / 1000)));
@@ -32,7 +33,8 @@ function signedInitData(options: {
     .digest('hex');
 
   params.set('hash', options.alterHash ? '0'.repeat(64) : hash);
-  return params.toString();
+  const result = params.toString();
+  return options.duplicateAuthDate ? `${result}&auth_date=${params.get('auth_date')}` : result;
 }
 
 test('accepts correctly signed, recent Telegram initData', () => {
@@ -47,19 +49,33 @@ test('rejects a modified or invalid signature', () => {
   assert.equal(verifyTelegramInitData('auth_date=1&user=%7B%7D&hash=bad', botToken), null);
 });
 
-test('rejects stale authentication data', () => {
+test('rejects stale, invalid and future authentication dates', () => {
   const staleDate = Math.floor(Date.now() / 1000) - 3601;
+  const futureDate = Math.floor(Date.now() / 1000) + 31;
   assert.equal(verifyTelegramInitData(signedInitData({ authDate: staleDate }), botToken), null);
+  assert.equal(verifyTelegramInitData(signedInitData({ authDate: 0 }), botToken), null);
+  assert.equal(verifyTelegramInitData(signedInitData({ authDate: futureDate }), botToken), null);
 });
 
-test('rejects malformed user payloads', () => {
-  assert.equal(verifyTelegramInitData(signedInitData({ user: { id: -1, first_name: 'Bad' } }), botToken), null);
-  assert.equal(verifyTelegramInitData(signedInitData({ user: { id: 123, first_name: 4 } }), botToken), null);
+test('rejects malformed user payloads and invalid optional fields', () => {
+  const invalidUsers = [
+    { id: -1, first_name: 'Bad' },
+    { id: 123, first_name: 4 },
+    { id: 123, first_name: '' },
+    { id: 123, first_name: 'Good', username: 42 },
+    { id: 123, first_name: 'Good', language_code: false },
+    { id: 123, first_name: 'Good', last_name: 'x'.repeat(257) },
+    null,
+    ['not', 'an', 'object']
+  ];
+
+  for (const user of invalidUsers) {
+    assert.equal(verifyTelegramInitData(signedInitData({ user }), botToken), null);
+  }
 });
 
-test('rejects empty, oversized and future-dated data', () => {
+test('rejects duplicate parameters, empty and oversized data', () => {
   assert.equal(verifyTelegramInitData('', botToken), null);
   assert.equal(verifyTelegramInitData('x'.repeat(16_385), botToken), null);
-  const futureDate = Math.floor(Date.now() / 1000) + 31;
-  assert.equal(verifyTelegramInitData(signedInitData({ authDate: futureDate }), botToken), null);
+  assert.equal(verifyTelegramInitData(signedInitData({ duplicateAuthDate: true }), botToken), null);
 });
