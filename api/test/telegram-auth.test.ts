@@ -14,11 +14,10 @@ function signedInitData(options: {
   const params = new URLSearchParams();
   params.set('auth_date', String(options.authDate ?? Math.floor(Date.now() / 1000)));
   params.set('query_id', 'AAE-test-query');
-  params.set('user', JSON.stringify(options.user ?? {
-    id: 123456,
-    first_name: 'Test',
-    username: 'test_user'
-  }));
+  const user = Object.prototype.hasOwnProperty.call(options, 'user')
+    ? options.user
+    : { id: 123456, first_name: 'Test', username: 'test_user' };
+  params.set('user', JSON.stringify(user));
 
   const dataCheckString = [...params.entries()]
     .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
