@@ -26,7 +26,7 @@ test('offer acceptance locks both participant profiles in stable order', () => {
 test('offer acceptance rejects the transaction unless both participants are unblocked', () => {
   assert.match(migration, /AND\s+is_blocked\s*=\s*false/is);
   assert.match(migration, /v_active_participants\s*<>\s*2/is);
-  assert.match(migration, /RAISE\s+EXCEPTION\s+'[^']*(blocked|active)[^']*'/is);
+  assert.match(migration, /RAISE\s+EXCEPTION\s+'[^']*(blocked|active|participant unavailable)[^']*'/is);
 });
 
 test('offer acceptance keeps the security-definer search path constrained', () => {
