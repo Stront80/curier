@@ -648,15 +648,23 @@ app.get('/health/db', async (_req, res) => {
   }
 });
 
-const server = app.listen(port, '127.0.0.1', () => {
-  console.log(`Curier API listening on 127.0.0.1:${port}`);
-});
+let server: ReturnType<typeof app.listen> | undefined;
+
+if (process.env.NODE_ENV !== 'test') {
+  server = app.listen(port, '127.0.0.1', () => {
+    console.log(`Curier API listening on 127.0.0.1:${port}`);
+  });
+}
 
 async function shutdown() {
-  server.close();
+  if (server) {
+    server.close();
+  }
   await pool.end();
   process.exit(0);
 }
 
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());
+
+export { app };
