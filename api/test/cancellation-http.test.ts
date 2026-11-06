@@ -360,6 +360,15 @@ test('HTTP integration: only the assigned courier can advance delivery through s
     assert.equal(blockedCourierAttempt.status, 409, 'blocked couriers must not advance delivery');
     await db!.query('UPDATE public.profiles SET is_blocked = false WHERE id = $1', [courierId]);
 
+    const invalidStatus = await changeStatus(orderId, 'cancelled');
+    assert.equal(invalidStatus.status, 400);
+
+    const missingStatus = await fetch(
+      `${baseUrl}/orders/${orderId}/status`,
+      { method: 'POST', headers: auth(courierId), body: JSON.stringify({}) }
+    );
+    assert.equal(missingStatus.status, 400);
+
     const skipStep = await changeStatus(orderId, 'in_transit');
     assert.equal(skipStep.status, 409);
 
