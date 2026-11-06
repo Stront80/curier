@@ -966,7 +966,7 @@ app.post('/orders/:orderId/status', requireAuth, async (req, res) => {
 
     const updated = await client.query(
       `UPDATE public.orders
-       SET status = $2::public.order_status, updated_at = now()
+       SET status = $2, updated_at = now()
        WHERE id = $1
        RETURNING id, status, updated_at`,
       [orderId, nextStatus]
