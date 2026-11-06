@@ -17,6 +17,7 @@ test('order listing requires authentication and excludes blocked profiles', () =
   assert.match(route, /requireAuth/);
   assert.match(route, /p\.is_blocked\s*=\s*false/);
   assert.match(route, /o\.early_access_until\s*<=\s*now\(\)/);
+  assert.match(route, /o\.courier_id\s*=\s*\$1/);
 });
 
 test('order creation validates fields and locks an unblocked profile', () => {
