@@ -237,9 +237,9 @@ test('integration: cancellation table is not public and grants API access when t
     const grants = await pool!.query(
       `SELECT
          EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'curier_app') AS api_role_exists,
-         has_table_privilege('curier_app', 'public.order_cancellation_requests', 'SELECT') AS api_can_select,
-         has_table_privilege('curier_app', 'public.order_cancellation_requests', 'INSERT') AS api_can_insert,
-         has_table_privilege('curier_app', 'public.order_cancellation_requests', 'UPDATE') AS api_can_update,
+         CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'curier_app') THEN has_table_privilege('curier_app', 'public.order_cancellation_requests', 'SELECT') ELSE false END AS api_can_select,
+         CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'curier_app') THEN has_table_privilege('curier_app', 'public.order_cancellation_requests', 'INSERT') ELSE false END AS api_can_insert,
+         CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'curier_app') THEN has_table_privilege('curier_app', 'public.order_cancellation_requests', 'UPDATE') ELSE false END AS api_can_update,
          has_table_privilege('public', 'public.order_cancellation_requests', 'SELECT') AS public_can_select`
     );
     const row = grants.rows[0];
