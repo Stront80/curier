@@ -65,6 +65,69 @@ test('HTTP: health responds and protected routes reject missing, invalid or expi
       error: 'Invalid or expired token'
     });
 
+    const validToken = jwt.sign(
+      { sub: '10000000-0000-4000-8000-000000000001' },
+      'http-test-secret',
+      { issuer: 'curier-api', audience: 'curier-app' }
+    );
+    const cancellationWithoutAuth = await fetch(
+      `${baseUrl}/orders/invalid-order-id/cancellation-requests`
+    );
+    assert.equal(cancellationWithoutAuth.status, 401);
+
+    const invalidCancellationOrder = await fetch(
+      `${baseUrl}/orders/not-a-uuid/cancellation-requests`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${validToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ reason: 'Testing cancellation' })
+      }
+    );
+    assert.equal(invalidCancellationOrder.status, 400);
+    assert.deepEqual(await invalidCancellationOrder.json(), {
+      error: 'Invalid order ID'
+    });
+
+    const invalidCancellationHistory = await fetch(
+      `${baseUrl}/orders/not-a-uuid/cancellation-requests`,
+      { headers: { Authorization: `Bearer ${validToken}` } }
+    );
+    assert.equal(invalidCancellationHistory.status, 400);
+    assert.deepEqual(await invalidCancellationHistory.json(), {
+      error: 'Invalid order ID'
+    });
+
+    const invalidCancellationRequestId = await fetch(
+      `${baseUrl}/orders/10000000-0000-4000-8000-000000000001/cancellation-requests/not-a-uuid/confirm`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${validToken}` }
+      }
+    );
+    assert.equal(invalidCancellationRequestId.status, 400);
+    assert.deepEqual(await invalidCancellationRequestId.json(), {
+      error: 'Invalid order or cancellation request ID'
+    });
+
+    const missingCancellationReason = await fetch(
+      `${baseUrl}/orders/10000000-0000-4000-8000-000000000001/cancellation-requests`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${validToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ reason: '   ' })
+      }
+    );
+    assert.equal(missingCancellationReason.status, 400);
+    assert.deepEqual(await missingCancellationReason.json(), {
+      error: 'Cancellation reason is required (max 1000 characters)'
+    });
+
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
