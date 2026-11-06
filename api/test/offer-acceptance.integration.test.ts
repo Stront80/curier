@@ -229,3 +229,27 @@ test('integration: cancellation request records the second party and confirmatio
     await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE');
   }
 });
+
+
+test('integration: cancellation table is not public and grants API access when the role exists', { skip: !enabled }, async () => {
+  await resetFixture();
+  try {
+    const grants = await pool!.query(
+      `SELECT
+         EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'curier_app') AS api_role_exists,
+         has_table_privilege('curier_app', 'public.order_cancellation_requests', 'SELECT') AS api_can_select,
+         has_table_privilege('curier_app', 'public.order_cancellation_requests', 'INSERT') AS api_can_insert,
+         has_table_privilege('curier_app', 'public.order_cancellation_requests', 'UPDATE') AS api_can_update,
+         has_table_privilege('public', 'public.order_cancellation_requests', 'SELECT') AS public_can_select`
+    );
+    const row = grants.rows[0];
+    assert.equal(row.public_can_select, false);
+    if (row.api_role_exists) {
+      assert.equal(row.api_can_select, true);
+      assert.equal(row.api_can_insert, true);
+      assert.equal(row.api_can_update, true);
+    }
+  } finally {
+    await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE');
+  }
+});
