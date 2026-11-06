@@ -9,10 +9,11 @@ This is an implementation sequence, not a claim that the listed future features 
 - [ ] Add repeatable API tests for authentication, order visibility, offer/counteroffer permissions and acceptance.
 - [x] Add PostgreSQL integration coverage for offer acceptance: active participants succeed; blocked participants and non-participants are rejected without assigning the order.
 - [x] Make npm test execute real tests (Telegram authentication and offer-acceptance tests run in CI).
-- [ ] Review route authorization and validation, including blocked users and malformed IDs.
+- [x] Add regression checks for route authorization and validation, including blocked profiles, malformed IDs, offer visibility and counteroffer guards.
+- [ ] Add HTTP-level API tests that exercise authentication middleware and route responses against a disposable test database.
 - [ ] Define allowed order state transitions and add cancellation rules.
 - [ ] Verify backup/restore and rollback steps.
-- [x] Add CI to build frontend and API and run tests on pull requests (latest verified successful run: [`0a2f4ee`](https://github.com/Stront80/curier/actions/runs/42159125235)).
+- [x] Add CI to build frontend and API and run tests on pull requests (latest verified successful run: [`dadd85a`](https://github.com/Stront80/curier/actions/runs/42159476813)).
 
 Exit criteria: builds and automated tests pass; critical order/offer permissions are covered; no deploy while checks fail.
 
