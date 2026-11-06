@@ -607,6 +607,254 @@ app.post('/offers/:offerId/counter', requireAuth, async (req, res) => {
   }
 });
 
+app.post('/orders/:orderId/cancellation-requests', requireAuth, async (req, res) => {
+  const userId = (req as AuthenticatedRequest).userId!;
+  const { orderId } = req.params;
+  const reason = req.body?.reason;
+
+  if (!isUuid(orderId)) {
+    return res.status(400).json({ error: 'Invalid order ID' });
+  }
+  if (typeof reason !== 'string' || !reason.trim() || reason.trim().length > 1000) {
+    return res.status(400).json({ error: 'Cancellation reason is required (max 1000 characters)' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const found = await client.query(
+      `SELECT id, customer_id, courier_id, status
+       FROM public.orders WHERE id = $1 FOR UPDATE`,
+      [orderId]
+    );
+    if (found.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    const order = found.rows[0];
+    if (userId !== order.customer_id && userId !== order.courier_id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Only order participants can request cancellation' });
+    }
+    if (!order.courier_id || !['agreed', 'picked_up', 'in_transit'].includes(order.status)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Cancellation requires an assigned courier and an active delivery' });
+    }
+
+    const profiles = await client.query(
+      `SELECT id, is_blocked FROM public.profiles
+       WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
+      [[order.customer_id, order.courier_id]]
+    );
+    if (profiles.rowCount !== 2 || profiles.rows.some((profile: { is_blocked: boolean }) => profile.is_blocked)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Order participant unavailable' });
+    }
+
+    const pending = await client.query(
+      `SELECT id FROM public.order_cancellation_requests
+       WHERE order_id = $1 AND status = 'pending'`,
+      [orderId]
+    );
+    if (pending.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'A cancellation request is already pending' });
+    }
+
+    const created = await client.query(
+      `INSERT INTO public.order_cancellation_requests (order_id, requested_by, reason)
+       VALUES ($1, $2, $3)
+       RETURNING id, order_id, requested_by, reason, status, requested_at`,
+      [orderId, userId, reason.trim()]
+    );
+    await client.query(
+      `INSERT INTO public.order_events (order_id, actor_id, event_type, payload)
+       VALUES ($1, $2, 'cancellation_requested', $3::jsonb)`,
+      [orderId, userId, JSON.stringify({
+        cancellation_request_id: created.rows[0].id,
+        reason: reason.trim(),
+        requested_by: userId,
+        requested_at: created.rows[0].requested_at
+      })]
+    );
+    await client.query('COMMIT');
+    return res.status(201).json({ cancellationRequest: created.rows[0] });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    if ((error as { code?: string }).code === '23505') {
+      return res.status(409).json({ error: 'A cancellation request is already pending' });
+    }
+    console.error('Cancellation request failed:', error);
+    return res.status(500).json({ error: 'Could not request cancellation' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/orders/:orderId/cancellation-requests/:requestId/confirm', requireAuth, async (req, res) => {
+  const userId = (req as AuthenticatedRequest).userId!;
+  const { orderId, requestId } = req.params;
+  if (!isUuid(orderId) || !isUuid(requestId)) {
+    return res.status(400).json({ error: 'Invalid order or cancellation request ID' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const found = await client.query(
+      `SELECT o.id, o.customer_id, o.courier_id, o.status,
+              c.id AS request_id, c.requested_by, c.reason, c.status AS request_status,
+              c.requested_at
+       FROM public.orders o
+       JOIN public.order_cancellation_requests c ON c.order_id = o.id
+       WHERE o.id = $1 AND c.id = $2
+       FOR UPDATE OF o, c`,
+      [orderId, requestId]
+    );
+    if (found.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Cancellation request not found' });
+    }
+    const order = found.rows[0];
+    if (userId !== order.customer_id && userId !== order.courier_id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Only order participants can confirm cancellation' });
+    }
+    if (userId === order.requested_by) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'The requester cannot confirm their own cancellation' });
+    }
+    if (order.request_status !== 'pending') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Cancellation request is no longer pending' });
+    }
+    if (!order.courier_id || !['agreed', 'picked_up', 'in_transit'].includes(order.status)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Order is not in a cancellable delivery state' });
+    }
+
+    const profiles = await client.query(
+      `SELECT id, is_blocked FROM public.profiles
+       WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
+      [[order.customer_id, order.courier_id]]
+    );
+    if (profiles.rowCount !== 2 || profiles.rows.some((profile: { is_blocked: boolean }) => profile.is_blocked)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Order participant unavailable' });
+    }
+
+    const updated = await client.query(
+      `UPDATE public.order_cancellation_requests
+       SET status = 'confirmed', responded_by = $2, responded_at = now()
+       WHERE id = $1 AND status = 'pending'
+       RETURNING id, reason, requested_by, requested_at, responded_by, responded_at`,
+      [requestId, userId]
+    );
+    if (updated.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Cancellation request is no longer pending' });
+    }
+    await client.query(
+      `UPDATE public.orders SET status = 'cancelled', updated_at = now()
+       WHERE id = $1`,
+      [orderId]
+    );
+    const closedOffers = await client.query(
+      `UPDATE public.offers SET status = 'rejected'
+       WHERE order_id = $1 AND status IN ('pending', 'countered')`,
+      [orderId]
+    );
+    await client.query(
+      `INSERT INTO public.order_events (order_id, actor_id, event_type, payload)
+       VALUES ($1, $2, 'order_cancelled', $3::jsonb)`,
+      [orderId, userId, JSON.stringify({
+        cancellation_request_id: requestId,
+        reason: updated.rows[0].reason,
+        requested_by: updated.rows[0].requested_by,
+        requested_at: updated.rows[0].requested_at,
+        confirmed_by: userId,
+        confirmed_at: updated.rows[0].responded_at,
+        closed_pending_offers: closedOffers.rowCount
+      })]
+    );
+    await client.query('COMMIT');
+    return res.json({ cancelled: true, orderId, cancellationRequest: updated.rows[0] });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Cancellation confirmation failed:', error);
+    return res.status(500).json({ error: 'Could not confirm cancellation' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/orders/:orderId/cancellation-requests/:requestId/decline', requireAuth, async (req, res) => {
+  const userId = (req as AuthenticatedRequest).userId!;
+  const { orderId, requestId } = req.params;
+  if (!isUuid(orderId) || !isUuid(requestId)) {
+    return res.status(400).json({ error: 'Invalid order or cancellation request ID' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const found = await client.query(
+      `SELECT o.customer_id, o.courier_id, o.status, c.requested_by, c.reason,
+              c.status AS request_status
+       FROM public.orders o
+       JOIN public.order_cancellation_requests c ON c.order_id = o.id
+       WHERE o.id = $1 AND c.id = $2
+       FOR UPDATE OF o, c`,
+      [orderId, requestId]
+    );
+    if (found.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Cancellation request not found' });
+    }
+    const order = found.rows[0];
+    if (userId !== order.customer_id && userId !== order.courier_id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Only order participants can decline cancellation' });
+    }
+    if (userId === order.requested_by) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'The requester cannot decline their own cancellation' });
+    }
+    if (order.request_status !== 'pending') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Cancellation request is no longer pending' });
+    }
+
+    const updated = await client.query(
+      `UPDATE public.order_cancellation_requests
+       SET status = 'declined', responded_by = $2, responded_at = now()
+       WHERE id = $1 AND status = 'pending'
+       RETURNING id, reason, requested_by, requested_at, responded_by, responded_at`,
+      [requestId, userId]
+    );
+    await client.query(
+      `INSERT INTO public.order_events (order_id, actor_id, event_type, payload)
+       VALUES ($1, $2, 'cancellation_declined', $3::jsonb)`,
+      [orderId, userId, JSON.stringify({
+        cancellation_request_id: requestId,
+        reason: updated.rows[0].reason,
+        requested_by: updated.rows[0].requested_by,
+        requested_at: updated.rows[0].requested_at,
+        declined_by: userId,
+        declined_at: updated.rows[0].responded_at
+      })]
+    );
+    await client.query('COMMIT');
+    return res.json({ declined: true, cancellationRequest: updated.rows[0] });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Cancellation decline failed:', error);
+    return res.status(500).json({ error: 'Could not decline cancellation' });
+  } finally {
+    client.release();
+  }
+});
+
 app.get('/me', requireAuth, async (req, res) => {
   const userId = (req as AuthenticatedRequest).userId;
 
