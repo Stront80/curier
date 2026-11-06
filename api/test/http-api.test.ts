@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 const connectionString = process.env.TEST_DATABASE_URL;
 const enabled = Boolean(connectionString);
 
-test('HTTP: health responds and protected routes reject missing or invalid bearer tokens', {
+test('HTTP: health responds and protected routes reject missing, invalid or expired bearer tokens', {
   skip: !enabled
 }, async () => {
   process.env.NODE_ENV = 'test';
@@ -48,18 +48,23 @@ test('HTTP: health responds and protected routes reject missing or invalid beare
       error: 'Invalid or expired token'
     });
 
-    const validTokenForMissingProfile = jwt.sign(
+    const expiredToken = jwt.sign(
       { sub: '10000000-0000-4000-8000-000000000001' },
       'http-test-secret',
-      { issuer: 'curier-api', audience: 'curier-app' }
+      {
+        issuer: 'curier-api',
+        audience: 'curier-app',
+        expiresIn: -1
+      }
     );
-    const unavailableProfile = await fetch(`${baseUrl}/me`, {
-      headers: { Authorization: `Bearer ${validTokenForMissingProfile}` }
+    const expired = await fetch(`${baseUrl}/orders`, {
+      headers: { Authorization: `Bearer ${expiredToken}` }
     });
-    assert.equal(unavailableProfile.status, 401);
-    assert.deepEqual(await unavailableProfile.json(), {
-      error: 'Profile unavailable'
+    assert.equal(expired.status, 401);
+    assert.deepEqual(await expired.json(), {
+      error: 'Invalid or expired token'
     });
+
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
