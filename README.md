@@ -2,74 +2,80 @@
 
 Telegram Mini App for a delivery marketplace where customers and couriers negotiate delivery prices.
 
-## Stack
-- React + TypeScript + Vite
-- Supabase PostgreSQL and Edge Functions
-- Telegram Mini Apps / Bot API
-- Telegram Stars planned for voluntary support and 24-hour courier early access
+## Current architecture
 
-## Project status
-Starter implementation. It is **not production-ready**. The UI and database/functions are scaffolding and must be reviewed and tested before handling real users or payments.
+- Frontend: React, TypeScript and Vite (src/).
+- Backend API: Express + TypeScript (api/src/), compiled to api/dist/.
+- Database: PostgreSQL. SQL migrations are in api/migrations/.
+- Authentication: Telegram Mini App initData is verified server-side; the API issues a JWT for subsequent requests.
+- Hosting: frontend over HTTPS; Apache proxies /api/ requests to the Node API.
+- Telegram Stars: planned for a later release. Real invoices, payment confirmation, refunds and paid access activation are not implemented in the current version.
+
+The Supabase setup described in older versions of this README is not the deployed architecture. Do not use Supabase CLI instructions for production.
+
+## Current functionality
+
+- Telegram-based authentication.
+- Customer order creation.
+- A 10-minute initial visibility delay before eligible orders are visible to couriers.
+- Courier offers and two-way counteroffers.
+- Acceptance of a pending offer and transition of the order to the agreed state.
+- Offer history and order events used by the UI.
+
+See docs/ARCHITECTURE.md and docs/ROADMAP.md for details and planned work.
 
 ## Repository structure
-- `src/` — frontend application
-- `supabase/migrations/` — database schema migrations
-- `supabase/functions/` — server-side Edge Functions
-- `prototype-preview.html` — static visual prototype
 
-## Run locally
-Requirements: Node.js 20+ and npm.
+- src/ — frontend application.
+- api/src/ — Express API and Telegram authentication.
+- api/migrations/ — PostgreSQL migrations.
+- api/package.json — API scripts and dependencies.
+- prototype-preview.html — static visual prototype.
 
+## Local development
+
+Requirements: Node.js and npm.
+
+Frontend:
 ```bash
-cp .env.example .env.local
 npm install
 npm run dev
 ```
 
-Configure `.env.local` with your Supabase project URL and anon key. Never put the Supabase service-role key or Telegram bot token in frontend environment variables.
+API:
+```bash
+cd api
+npm install
+npm run dev
+```
 
-## Supabase setup
-1. Install the Supabase CLI and authenticate.
-2. Link this repository to your Supabase project:
-   ```bash
-   supabase login
-   supabase link --project-ref YOUR_PROJECT_REF
-   ```
-3. Apply migrations:
-   ```bash
-   supabase db push
-   ```
-4. Add the Telegram bot token as a server secret:
-   ```bash
-   supabase secrets set TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN
-   ```
-5. Deploy the Edge Functions:
-   ```bash
-   supabase functions deploy telegram-auth
-   supabase functions deploy list-orders
-   supabase functions deploy create-order
-   supabase functions deploy place-offer
-   supabase functions deploy accept-offer
-   ```
+Configure API environment variables in a server-side .env file. Keep the Telegram bot token and database credentials out of frontend variables and source control. Never paste secrets into issues, logs or chat.
 
-## Telegram setup
-1. Configure the Mini App URL for your bot via BotFather.
-2. Deploy the frontend to an HTTPS host.
-3. Open the Mini App from Telegram so signed `initData` is available.
-4. Validate Telegram `initData` on the server. Do not trust `initDataUnsafe` for authentication.
+## Build and checks
 
-## Before public launch
-- Complete and test Telegram Stars invoice creation, pre-checkout, successful-payment handling, idempotency and refunds.
-- Configure bot webhook and notifications.
-- Finish counteroffers, order status transitions, cancellation, disputes and moderation.
-- Audit RLS policies and Edge Functions; add rate limiting and monitoring.
-- Add terms, privacy notice and prohibited-items policy.
-- Do not collect passport scans by default. Review Russian self-employed receipt guidance with a qualified lawyer.
-- Test early access: paid couriers see eligible orders for the first 10 minutes; access lasts 24 hours after activation.
-- Run `npm run build` and automated security/flow tests before release.
+From the repository root:
+```bash
+npm run build
+```
 
-## Architecture
-Telegram Mini App → Supabase Edge Functions → PostgreSQL. Telegram Bot API handles notifications and the Stars payment lifecycle. Keep secrets server-side.
+For API checks:
+```bash
+cd api
+npm run build
+npm test
+```
+
+The API test script is being established; do not treat a successful build alone as proof that business flows or permissions are correct. Run production smoke checks and review the release checklist before deploying.
+
+## Production safety
+
+- Apply database migrations deliberately and keep a verified backup before schema changes.
+- Build and test before restarting the API or publishing frontend assets.
+- Keep secrets in server-side environment files with restricted permissions.
+- Verify authentication, authorization, rate limiting, error handling and order state transitions.
+- Payment records/schema are preparatory only. Do not claim that Stars payments or 24-hour paid access work until the full server-side payment lifecycle is implemented and tested.
+- Add legal, privacy, prohibited-items and moderation policies before public launch.
 
 ## License
+
 Not specified yet.
