@@ -175,3 +175,34 @@ test('all cancellation mutations lock both profiles and reject blocked or missin
     assert.match(route, /Order participant unavailable/);
   }
 });
+
+test('cancellation only accepts trimmed non-empty reasons up to 1000 characters', () => {
+  const route = routeBody(
+    "app.post('/orders/:orderId/cancellation-requests', requireAuth",
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/confirm'"
+  );
+  assert.match(route, /typeof reason !== 'string'/);
+  assert.match(route, /!reason\.trim\(\)/);
+  assert.match(route, /reason\.trim\(\)\.length > 1000/);
+  assert.match(route, /reason\.trim\(\)/);
+});
+
+test('cancellation is limited to active assigned deliveries at request and response time', () => {
+  const request = routeBody(
+    "app.post('/orders/:orderId/cancellation-requests', requireAuth",
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/confirm'"
+  );
+  const confirm = routeBody(
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/confirm'",
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/decline'"
+  );
+  const decline = routeBody(
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/decline'",
+    "app.get('/me', requireAuth"
+  );
+
+  for (const route of [request, confirm, decline]) {
+    assert.match(route, /!order\.courier_id/);
+    assert.match(route, /\['agreed', 'picked_up', 'in_transit'\]\.includes\(order\.status\)/);
+  }
+});
