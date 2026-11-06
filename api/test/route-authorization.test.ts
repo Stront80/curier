@@ -152,3 +152,26 @@ test('declining a cancellation is restricted to the other order participant and 
   assert.match(route, /is_blocked/);
   assert.match(route, /Order participant unavailable/);
 });
+
+test('all cancellation mutations lock both profiles and reject blocked or missing participants', () => {
+  const request = routeBody(
+    "app.post('/orders/:orderId/cancellation-requests', requireAuth",
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/confirm'"
+  );
+  const confirm = routeBody(
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/confirm'",
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/decline'"
+  );
+  const decline = routeBody(
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/decline'",
+    "app.get('/me', requireAuth"
+  );
+
+  for (const route of [request, confirm, decline]) {
+    assert.match(route, /SELECT id, is_blocked FROM public\.profiles/);
+    assert.match(route, /ORDER BY id FOR UPDATE/);
+    assert.match(route, /profiles\.rowCount !== 2/);
+    assert.match(route, /profile\.is_blocked/);
+    assert.match(route, /Order participant unavailable/);
+  }
+});
