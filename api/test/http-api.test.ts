@@ -128,6 +128,22 @@ test('HTTP: health responds and protected routes reject missing, invalid or expi
       error: 'Cancellation reason is required (max 1000 characters)'
     });
 
+    const oversizedCancellationReason = await fetch(
+      `${baseUrl}/orders/10000000-0000-4000-8000-000000000001/cancellation-requests`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${validToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ reason: 'x'.repeat(1001) })
+      }
+    );
+    assert.equal(oversizedCancellationReason.status, 400);
+    assert.deepEqual(await oversizedCancellationReason.json(), {
+      error: 'Cancellation reason is required (max 1000 characters)'
+    });
+
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
