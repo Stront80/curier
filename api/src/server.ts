@@ -607,6 +607,46 @@ app.post('/offers/:offerId/counter', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/orders/:orderId/cancellation-requests', requireAuth, async (req, res) => {
+  const userId = (req as AuthenticatedRequest).userId!;
+  const { orderId } = req.params;
+
+  if (!isUuid(orderId)) {
+    return res.status(400).json({ error: 'Invalid order ID' });
+  }
+
+  try {
+    const order = await pool.query(
+      `SELECT o.customer_id, o.courier_id
+       FROM public.orders o
+       JOIN public.profiles p ON p.id = $2 AND p.is_blocked = false
+       WHERE o.id = $1`,
+      [orderId, userId]
+    );
+    if (order.rowCount !== 1) {
+      return res.status(404).json({ error: 'Order not found or profile unavailable' });
+    }
+    if (userId !== order.rows[0].customer_id && userId !== order.rows[0].courier_id) {
+      return res.status(403).json({ error: 'Only order participants can view cancellation history' });
+    }
+
+    const history = await pool.query(
+      `SELECT id, order_id, requested_by, reason, status, requested_at,
+              responded_by, responded_at
+       FROM public.order_cancellation_requests
+       WHERE order_id = $1
+       ORDER BY requested_at DESC
+       LIMIT 100`,
+      [orderId]
+    );
+    return res.json({ cancellationRequests: history.rows });
+  } catch (error) {
+    console.error('Cancellation history failed:', error);
+    return res.status(500).json({ error: 'Could not load cancellation history' });
+  }
+});
+
+
 app.post('/orders/:orderId/cancellation-requests', requireAuth, async (req, res) => {
   const userId = (req as AuthenticatedRequest).userId!;
   const { orderId } = req.params;
