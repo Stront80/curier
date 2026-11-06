@@ -12,6 +12,7 @@ const courierId = '11000000-0000-4000-8000-000000000002';
 const outsiderId = '11000000-0000-4000-8000-000000000003';
 const orderId = '22000000-0000-4000-8000-000000000001';
 const secondOrderId = '22000000-0000-4000-8000-000000000002';
+const openOrderId = '22000000-0000-4000-8000-000000000003';
 const offerId = '33000000-0000-4000-8000-000000000001';
 const counterOfferId = '33000000-0000-4000-8000-000000000002';
 const migration = readFileSync('migrations/005_order_cancellation.sql', 'utf8');
@@ -59,8 +60,8 @@ async function resetFixture() {
     [customerId, courierId, outsiderId]
   );
   await db.query(
-    "INSERT INTO public.orders (id, customer_id, status, courier_id) VALUES ($1, $2, 'agreed', $3), ($4, $2, 'in_transit', $3)",
-    [orderId, customerId, courierId, secondOrderId]
+    "INSERT INTO public.orders (id, customer_id, status, courier_id) VALUES ($1, $2, 'agreed', $3), ($4, $2, 'in_transit', $3), ($5, $2, 'open', $3)",
+    [orderId, customerId, courierId, secondOrderId, openOrderId]
   );
   await db.query(
     "INSERT INTO public.offers (id, order_id, status) VALUES ($1, $2, 'pending'), ($3, $2, 'countered'), ($4, $5, 'pending'), ($6, $5, 'countered')",
@@ -114,6 +115,21 @@ test('HTTP integration: cancellation request, participant history, decline and c
       }
     );
     assert.equal(outsiderRequest.status, 403);
+
+    const invalidStateRequest = await fetch(
+      `${baseUrl}/orders/${openOrderId}/cancellation-requests`,
+      {
+        method: 'POST',
+        headers: { ...auth(customerId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Order is not in delivery state' })
+      }
+    );
+    assert.equal(invalidStateRequest.status, 409);
+    const invalidStateHistory = await db!.query(
+      'SELECT id FROM public.order_cancellation_requests WHERE order_id = $1',
+      [openOrderId]
+    );
+    assert.equal(invalidStateHistory.rowCount, 0, 'ineligible orders must not gain cancellation requests');
 
     const requested = await fetch(`${baseUrl}/orders/${orderId}/cancellation-requests`, {
       method: 'POST',
