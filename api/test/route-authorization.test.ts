@@ -89,3 +89,48 @@ test('database health endpoint returns availability status and handles database 
   assert.match(route, /status:\s*'ok'/);
   assert.match(route, /status\(503\)/);
 });
+
+
+test('cancellation request requires a participant, a reason and an active assigned delivery', () => {
+  const route = routeBody(
+    "app.post('/orders/:orderId/cancellation-requests', requireAuth",
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/confirm'"
+  );
+  assert.match(route, /Invalid order ID/);
+  assert.match(route, /Cancellation reason is required/);
+  assert.match(route, /Only order participants can request cancellation/);
+  assert.match(route, /assigned courier and an active delivery/);
+  assert.match(route, /FOR UPDATE/);
+  assert.match(route, /cancellation_requested/);
+  assert.match(route, /requested_by/);
+  assert.match(route, /requested_at/);
+});
+
+test('cancellation confirmation requires the other participant and atomically closes pending offers', () => {
+  const route = routeBody(
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/confirm'",
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/decline'"
+  );
+  assert.match(route, /requester cannot confirm their own cancellation/);
+  assert.match(route, /Cancellation request is no longer pending/);
+  assert.match(route, /SET status = 'cancelled'/);
+  assert.match(route, /status IN \('pending', 'countered'\)/);
+  assert.match(route, /SET status = 'rejected'/);
+  assert.match(route, /order_cancelled/);
+  assert.match(route, /confirmed_by/);
+  assert.match(route, /confirmed_at/);
+  assert.match(route, /FOR UPDATE OF o, c/);
+});
+
+test('declining a cancellation is restricted to the other order participant and is audited', () => {
+  const route = routeBody(
+    "app.post('/orders/:orderId/cancellation-requests/:requestId/decline'",
+    "app.get('/me', requireAuth"
+  );
+  assert.match(route, /Only order participants can decline cancellation/);
+  assert.match(route, /requester cannot decline their own cancellation/);
+  assert.match(route, /SET status = 'declined'/);
+  assert.match(route, /cancellation_declined/);
+  assert.match(route, /declined_by/);
+  assert.match(route, /declined_at/);
+});
