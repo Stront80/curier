@@ -2,9 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const migrationUrl = new URL('../migrations/004_blocked_user_offer_acceptance.sql', import.meta.url);
-
-const migration = readFileSync(migrationUrl, 'utf8');
+const migration = readFileSync('migrations/004_blocked_user_offer_acceptance.sql', 'utf8');
 
 test('offer acceptance migration replaces the existing transaction function', () => {
   assert.match(
