@@ -25,7 +25,7 @@ async function resetFixture() {
 
   await pool.query(`
     DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid);
-    DROP TABLE IF EXISTS public.order_events, public.offers, public.orders, public.profiles CASCADE;
+    DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE;
     CREATE TABLE public.profiles (
       id uuid PRIMARY KEY,
       is_blocked boolean NOT NULL DEFAULT false
