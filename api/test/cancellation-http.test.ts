@@ -95,6 +95,26 @@ test('HTTP integration: cancellation request, participant history, decline and c
     const baseUrl = `http://127.0.0.1:${address.port}`;
     const auth = (id: string) => ({ Authorization: `Bearer ${token(id)}` });
 
+    const unauthenticatedRequest = await fetch(
+      `${baseUrl}/orders/${orderId}/cancellation-requests`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Unauthenticated request attempt' })
+      }
+    );
+    assert.equal(unauthenticatedRequest.status, 401);
+
+    const outsiderRequest = await fetch(
+      `${baseUrl}/orders/${orderId}/cancellation-requests`,
+      {
+        method: 'POST',
+        headers: { ...auth(outsiderId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Outsider request attempt' })
+      }
+    );
+    assert.equal(outsiderRequest.status, 403);
+
     const requested = await fetch(`${baseUrl}/orders/${orderId}/cancellation-requests`, {
       method: 'POST',
       headers: { ...auth(customerId), 'Content-Type': 'application/json' },
