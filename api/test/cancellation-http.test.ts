@@ -63,8 +63,8 @@ async function resetFixture() {
     [orderId, customerId, courierId, secondOrderId]
   );
   await db.query(
-    "INSERT INTO public.offers (id, order_id, status) VALUES ($1, $2, 'pending'), ($3, $2, 'countered'), ($4, $5, 'pending')",
-    [offerId, orderId, counterOfferId, '33000000-0000-4000-8000-000000000003', secondOrderId]
+    "INSERT INTO public.offers (id, order_id, status) VALUES ($1, $2, 'pending'), ($3, $2, 'countered'), ($4, $5, 'pending'), ($6, $5, 'countered')",
+    [offerId, orderId, counterOfferId, '33000000-0000-4000-8000-000000000003', secondOrderId, '33000000-0000-4000-8000-000000000004']
   );
 }
 
@@ -172,7 +172,7 @@ test('HTTP integration: cancellation request, participant history, decline and c
       'SELECT status FROM public.offers WHERE order_id = $1 ORDER BY id',
       [secondOrderId]
     );
-    assert.deepEqual(closedOffers.rows.map(row => row.status), ['rejected']);
+    assert.deepEqual(closedOffers.rows.map(row => row.status), ['rejected', 'rejected']);
     const events = await db!.query(
       'SELECT event_type, payload FROM public.order_events WHERE order_id = $1 ORDER BY id',
       [secondOrderId]
