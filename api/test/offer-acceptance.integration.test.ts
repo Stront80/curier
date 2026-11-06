@@ -487,3 +487,36 @@ test('integration: database rejects cancellation confirmation by the requester',
     await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE');
   }
 });
+
+test('integration: a declined cancellation remains in history and a new request may be opened', { skip: !enabled }, async () => {
+  await resetFixture();
+  try {
+    const declinedId = '40000000-0000-4000-8000-000000000006';
+    const nextId = '40000000-0000-4000-8000-000000000007';
+    await pool!.query(
+      `INSERT INTO public.order_cancellation_requests
+         (id, order_id, requested_by, reason, status, responded_by, responded_at)
+       VALUES ($1, $2, $3, $4, 'declined', $5, now())`,
+      [declinedId, orderId, customerId, 'First request declined', courierId]
+    );
+
+    await pool!.query(
+      `INSERT INTO public.order_cancellation_requests (id, order_id, requested_by, reason)
+       VALUES ($1, $2, $3, $4)`,
+      [nextId, orderId, courierId, 'Second request after decline']
+    );
+
+    const history = await pool!.query(
+      `SELECT id, status, reason FROM public.order_cancellation_requests
+       WHERE order_id = $1 ORDER BY requested_at ASC, id ASC`,
+      [orderId]
+    );
+    assert.equal(history.rowCount, 2);
+    assert.equal(history.rows.find(row => row.id === declinedId)?.status, 'declined');
+    assert.equal(history.rows.find(row => row.id === declinedId)?.reason, 'First request declined');
+    assert.equal(history.rows.find(row => row.id === nextId)?.status, 'pending');
+    assert.equal(history.rows.find(row => row.id === nextId)?.reason, 'Second request after decline');
+  } finally {
+    await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE');
+  }
+});
