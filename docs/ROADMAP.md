@@ -11,17 +11,17 @@ This is an implementation sequence, not a claim that the listed future features 
 - [x] Make npm test execute real tests (Telegram authentication and offer-acceptance tests run in CI).
 - [x] Add regression checks for route authorization and validation, including blocked profiles, malformed IDs, offer visibility and counteroffer guards.
 - [x] Add HTTP-level API tests for health responses and rejection of missing, invalid and expired bearer tokens against the CI PostgreSQL service. Authenticated `/me` profile-absence behavior remains covered by source-level checks until the HTTP fixture includes the application schema.
-- [ ] Define allowed order state transitions and add cancellation rules.
+- [x] Define allowed delivery state transitions (`agreed -> picked_up -> in_transit -> delivered`) and implement mutual cancellation rules with reason and event history.
 - [ ] Verify backup/restore and rollback steps.
-- [x] Add CI to build frontend and API and run tests on pull requests (latest verified successful run: [`d1edd42`](https://github.com/Stront80/curier/actions/runs/42164228047)).
+- [x] Add CI to build frontend and API and run tests on pull requests (latest verified successful run: [`376ca44`](https://github.com/Stront80/curier/actions/runs/42237606375); Mini App build: [run #99](https://github.com/Stront80/curier/actions/runs/42237606472)).
 
 Exit criteria: builds and automated tests pass; critical order/offer permissions are covered; no deploy while checks fail.
 
 ## Phase 2 — Complete delivery lifecycle
 
-- Define order states and allowed transitions.
-- Implement courier assignment, pickup/delivery progress and completion where requirements are agreed.
-- Add customer/courier cancellation rules, reasons and event history.
+- [x] Define delivery status transitions and enforce sequential updates server-side; covered by HTTP integration tests.
+- [x] Courier assignment through accepted offers; courier-only pickup, in-transit and delivered transitions are implemented and tested.
+- [x] Add customer/courier cancellation rules, reasons and event history; HTTP regression coverage includes permissions, validation and duplicate requests.
 - Decide dispute and moderation workflow before implementing it.
 - Add reliable notifications for offers, counteroffers, acceptance and lifecycle changes.
 
