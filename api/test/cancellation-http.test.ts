@@ -278,6 +278,9 @@ test('HTTP integration: cancellation request, participant history, decline and c
       [secondOrderId]
     );
     assert.deepEqual(events.rows.map(row => row.event_type), ['cancellation_requested', 'order_cancelled']);
+    assert.equal(events.rows[0].payload.reason, 'Parcel damaged after pickup');
+    assert.equal(events.rows[0].payload.requested_by, courierId);
+    assert.ok(events.rows[0].payload.requested_at);
     assert.equal(events.rows[1].payload.reason, 'Parcel damaged after pickup');
     assert.equal(events.rows[1].payload.confirmed_by, customerId);
     assert.ok(events.rows[1].payload.confirmed_at);
