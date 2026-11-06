@@ -914,6 +914,79 @@ app.post('/orders/:orderId/cancellation-requests/:requestId/decline', requireAut
   }
 });
 
+app.post('/orders/:orderId/status', requireAuth, async (req, res) => {
+  const userId = (req as AuthenticatedRequest).userId!;
+  const { orderId } = req.params;
+  const { status: nextStatus } = req.body ?? {};
+
+  if (!isUuid(orderId)) {
+    return res.status(400).json({ error: 'Invalid order ID' });
+  }
+
+  const transitions: Record<string, string> = {
+    agreed: 'picked_up',
+    picked_up: 'in_transit',
+    in_transit: 'delivered'
+  };
+  if (typeof nextStatus !== 'string' ||
+      !Object.values(transitions).includes(nextStatus)) {
+    return res.status(400).json({ error: 'Invalid delivery status' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const found = await client.query(
+      `SELECT o.id, o.customer_id, o.courier_id, o.status,
+              p.is_blocked AS courier_blocked
+       FROM public.orders o
+       LEFT JOIN public.profiles p ON p.id = o.courier_id
+       WHERE o.id = $1
+       FOR UPDATE OF o`,
+      [orderId]
+    );
+    if (found.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const order = found.rows[0];
+    if (order.courier_id !== userId) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Only the assigned courier can update delivery status' });
+    }
+    if (order.courier_blocked !== false) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Courier profile unavailable' });
+    }
+    if (transitions[order.status] !== nextStatus) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Invalid order status transition' });
+    }
+
+    const updated = await client.query(
+      `UPDATE public.orders
+       SET status = $2::public.order_status, updated_at = now()
+       WHERE id = $1
+       RETURNING id, status, updated_at`,
+      [orderId, nextStatus]
+    );
+    await client.query(
+      `INSERT INTO public.order_events (order_id, actor_id, event_type, payload)
+       VALUES ($1, $2, 'delivery_status_changed', $3::jsonb)`,
+      [orderId, userId, JSON.stringify({ from: order.status, to: nextStatus })]
+    );
+    await client.query('COMMIT');
+    return res.json({ order: updated.rows[0] });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Delivery status update failed:', error);
+    return res.status(500).json({ error: 'Could not update delivery status' });
+  } finally {
+    client.release();
+  }
+});
+
 app.get('/me', requireAuth, async (req, res) => {
   const userId = (req as AuthenticatedRequest).userId;
 
