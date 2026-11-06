@@ -520,3 +520,35 @@ test('integration: a declined cancellation remains in history and a new request 
     await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE');
   }
 });
+
+test('integration: database permits only one pending cancellation request per order', { skip: !enabled }, async () => {
+  await resetFixture();
+  try {
+    const firstId = '40000000-0000-4000-8000-000000000008';
+    const secondId = '40000000-0000-4000-8000-000000000009';
+    await pool!.query(
+      `INSERT INTO public.order_cancellation_requests (id, order_id, requested_by, reason)
+       VALUES ($1, $2, $3, $4)`,
+      [firstId, orderId, customerId, 'First pending request']
+    );
+
+    await assert.rejects(
+      pool!.query(
+        `INSERT INTO public.order_cancellation_requests (id, order_id, requested_by, reason)
+         VALUES ($1, $2, $3, $4)`,
+        [secondId, orderId, courierId, 'Competing pending request']
+      ),
+      (error: unknown) => (error as { code?: string }).code === '23505'
+    );
+
+    const rows = await pool!.query(
+      `SELECT id, status, reason FROM public.order_cancellation_requests WHERE order_id = $1`,
+      [orderId]
+    );
+    assert.equal(rows.rowCount, 1);
+    assert.equal(rows.rows[0].id, firstId);
+    assert.equal(rows.rows[0].status, 'pending');
+  } finally {
+    await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE');
+  }
+});
