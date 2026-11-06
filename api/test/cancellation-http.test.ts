@@ -116,6 +116,31 @@ test('HTTP integration: cancellation request, participant history, decline and c
     );
     assert.equal(outsiderRequest.status, 403);
 
+    const invalidUuidRequest = await fetch(
+      `${baseUrl}/orders/not-a-uuid/cancellation-requests`,
+      {
+        method: 'POST',
+        headers: { ...auth(customerId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Invalid order identifier' })
+      }
+    );
+    assert.equal(invalidUuidRequest.status, 400);
+
+    const emptyReasonRequest = await fetch(
+      `${baseUrl}/orders/${orderId}/cancellation-requests`,
+      {
+        method: 'POST',
+        headers: { ...auth(customerId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: '   ' })
+      }
+    );
+    assert.equal(emptyReasonRequest.status, 400);
+    const historyAfterEmptyReason = await db!.query(
+      'SELECT id FROM public.order_cancellation_requests WHERE order_id = $1',
+      [orderId]
+    );
+    assert.equal(historyAfterEmptyReason.rowCount, 0, 'invalid reasons must not create cancellation requests');
+
     const invalidStateRequest = await fetch(
       `${baseUrl}/orders/${openOrderId}/cancellation-requests`,
       {
