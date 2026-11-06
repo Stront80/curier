@@ -125,6 +125,18 @@ test('HTTP integration: cancellation request, participant history, decline and c
     assert.equal(historyBody.cancellationRequests[0].id, requestId);
     assert.equal(historyBody.cancellationRequests[0].reason, 'Customer cannot receive the parcel');
 
+    const selfConfirm = await fetch(
+      `${baseUrl}/orders/${orderId}/cancellation-requests/${requestId}/confirm`,
+      { method: 'POST', headers: auth(customerId) }
+    );
+    assert.equal(selfConfirm.status, 403);
+
+    const outsiderDecline = await fetch(
+      `${baseUrl}/orders/${orderId}/cancellation-requests/${requestId}/decline`,
+      { method: 'POST', headers: auth(outsiderId) }
+    );
+    assert.equal(outsiderDecline.status, 403);
+
     const declined = await fetch(
       `${baseUrl}/orders/${orderId}/cancellation-requests/${requestId}/decline`,
       { method: 'POST', headers: auth(courierId) }
