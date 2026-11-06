@@ -336,7 +336,6 @@ test('integration: confirmed cancellation atomically cancels the order, closes a
       'SELECT status FROM public.offers WHERE order_id = $1 ORDER BY id',
       [orderId]
     );
-    assert.equal(offers.length, undefined); // rows are asserted below
     assert.equal(offers.rows.length, 2);
     assert.ok(offers.rows.every(row => row.status === 'rejected'));
 
