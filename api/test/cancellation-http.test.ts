@@ -385,10 +385,12 @@ test('HTTP integration: only the assigned courier can advance delivery through s
     assert.equal((await delivered.json() as { order: { status: string } }).order.status, 'delivered');
 
     const events = await db!.query(
-      "SELECT payload FROM public.order_events WHERE order_id = $1 AND event_type = 'delivery_status_changed' ORDER BY created_at",
+      "SELECT actor_id, payload FROM public.order_events WHERE order_id = $1 AND event_type = 'delivery_status_changed' ORDER BY created_at",
       [orderId]
     );
     assert.equal(events.rowCount, 3);
+    assert.deepEqual(events.rows.map(row => row.actor_id), [courierId, courierId, courierId]);
+    assert.deepEqual(events.rows.map(row => row.payload.from), ['agreed', 'picked_up', 'in_transit']);
     assert.deepEqual(events.rows.map(row => row.payload.to), ['picked_up', 'in_transit', 'delivered']);
 
     const afterDelivery = await changeStatus(orderId, 'in_transit');
