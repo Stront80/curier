@@ -15,18 +15,6 @@ DECLARE
   v_latest_offer_id uuid;
   v_active_participants integer;
 BEGIN
-  -- The API JWT can remain valid after an account is blocked, so enforce
-  -- account status inside this privileged transaction as well.
-  PERFORM 1
-  FROM public.profiles
-  WHERE id = p_customer_id
-    AND is_blocked = false
-  FOR UPDATE;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Profile unavailable';
-  END IF;
-
   SELECT * INTO v_offer
   FROM public.offers
   WHERE id = p_offer_id
@@ -45,7 +33,19 @@ BEGIN
     RAISE EXCEPTION 'Order not found';
   END IF;
 
-  -- Do not let an active customer accept an offer from a blocked courier.
+  IF p_customer_id <> v_order.customer_id
+     AND p_customer_id <> v_offer.courier_id THEN
+    RAISE EXCEPTION 'Only order participants can accept offers';
+  END IF;
+
+  -- Serialize this check with account-blocking updates. Lock both profiles
+  -- in a stable order to reduce deadlock risk between concurrent acceptances.
+  PERFORM p.id
+  FROM public.profiles p
+  WHERE p.id IN (v_order.customer_id, v_offer.courier_id)
+  ORDER BY p.id
+  FOR UPDATE;
+
   SELECT count(*) INTO v_active_participants
   FROM public.profiles
   WHERE id IN (v_order.customer_id, v_offer.courier_id)
@@ -58,11 +58,6 @@ BEGIN
   IF v_order.status NOT IN ('open', 'negotiating')
      OR v_order.courier_id IS NOT NULL THEN
     RAISE EXCEPTION 'Order is no longer available';
-  END IF;
-
-  IF p_customer_id <> v_order.customer_id
-     AND p_customer_id <> v_offer.courier_id THEN
-    RAISE EXCEPTION 'Only order participants can accept offers';
   END IF;
 
   IF v_offer.status <> 'pending' THEN
