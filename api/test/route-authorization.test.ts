@@ -91,6 +91,20 @@ test('database health endpoint returns availability status and handles database 
 });
 
 
+test('cancellation history is available only to authenticated order participants', () => {
+  const route = routeBody(
+    "app.get('/orders/:orderId/cancellation-requests', requireAuth",
+    "app.post('/orders/:orderId/cancellation-requests', requireAuth"
+  );
+  assert.match(route, /isUuid\(orderId\)/);
+  assert.match(route, /Only order participants can view cancellation history/);
+  assert.match(route, /is_blocked\s*=\s*false/);
+  assert.match(route, /cancellationRequests/);
+  assert.match(route, /requested_by/);
+  assert.match(route, /responded_by/);
+  assert.match(route, /ORDER BY requested_at DESC/);
+});
+
 test('cancellation request requires a participant, a reason and an active assigned delivery', () => {
   const route = routeBody(
     "app.post('/orders/:orderId/cancellation-requests', requireAuth",
