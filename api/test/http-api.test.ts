@@ -112,6 +112,18 @@ test('HTTP: health responds and protected routes reject missing, invalid or expi
       error: 'Invalid order or cancellation request ID'
     });
 
+    const invalidCancellationDeclineRequestId = await fetch(
+      `${baseUrl}/orders/10000000-0000-4000-8000-000000000001/cancellation-requests/not-a-uuid/decline`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${validToken}` }
+      }
+    );
+    assert.equal(invalidCancellationDeclineRequestId.status, 400);
+    assert.deepEqual(await invalidCancellationDeclineRequestId.json(), {
+      error: 'Invalid order or cancellation request ID'
+    });
+
     const missingCancellationReason = await fetch(
       `${baseUrl}/orders/10000000-0000-4000-8000-000000000001/cancellation-requests`,
       {
