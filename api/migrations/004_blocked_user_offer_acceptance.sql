@@ -44,6 +44,18 @@ BEGIN
     RAISE EXCEPTION 'Order not found';
   END IF;
 
+  -- Do not let an active customer accept an offer from a blocked courier.
+  PERFORM 1
+  FROM public.profiles
+  WHERE id IN (v_order.customer_id, v_offer.courier_id)
+    AND is_blocked = false
+  GROUP BY true
+  HAVING count(*) = 2;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Offer participant unavailable';
+  END IF;
+
   IF v_order.status NOT IN ('open', 'negotiating')
      OR v_order.courier_id IS NOT NULL THEN
     RAISE EXCEPTION 'Order is no longer available';
