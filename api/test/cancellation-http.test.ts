@@ -163,6 +163,12 @@ test('HTTP integration: cancellation request, participant history, decline and c
     );
     assert.equal(declined.status, 200);
     assert.equal((await declined.json() as { declined: boolean }).declined, true);
+
+    const repeatedDecline = await fetch(
+      `${baseUrl}/orders/${orderId}/cancellation-requests/${requestId}/decline`,
+      { method: 'POST', headers: auth(courierId) }
+    );
+    assert.equal(repeatedDecline.status, 409);
     const declinedState = await db!.query(
       'SELECT status, courier_id FROM public.orders WHERE id = $1',
       [orderId]
@@ -194,6 +200,12 @@ test('HTTP integration: cancellation request, participant history, decline and c
     assert.equal(confirmedBody.cancellationRequest.requested_by, courierId);
     assert.equal(confirmedBody.cancellationRequest.responded_by, customerId);
     assert.ok(confirmedBody.cancellationRequest.responded_at);
+
+    const repeatedConfirm = await fetch(
+      `${baseUrl}/orders/${secondOrderId}/cancellation-requests/${secondRequest.cancellationRequest.id}/confirm`,
+      { method: 'POST', headers: auth(customerId) }
+    );
+    assert.equal(repeatedConfirm.status, 409);
 
     const finalState = await db!.query(
       'SELECT status FROM public.orders WHERE id = $1',
