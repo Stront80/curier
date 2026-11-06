@@ -206,3 +206,16 @@ test('cancellation is limited to active assigned deliveries at request and respo
     assert.match(route, /\['agreed', 'picked_up', 'in_transit'\]\.includes\(order\.status\)/);
   }
 });
+
+test('delivery progress permits only sequential status transitions by the assigned courier', () => {
+  const route = routeBody("app.post('/orders/:orderId/status', requireAuth", "app.get('/me', requireAuth");
+  assert.match(route, /Invalid order ID/);
+  assert.match(route, /agreed:\s*'picked_up'/);
+  assert.match(route, /picked_up:\s*'in_transit'/);
+  assert.match(route, /in_transit:\s*'delivered'/);
+  assert.match(route, /Only the assigned courier can update delivery status/);
+  assert.match(route, /Invalid order status transition/);
+  assert.match(route, /FOR UPDATE OF o/);
+  assert.match(route, /delivery_status_changed/);
+  assert.match(route, /updated_at = now\(\)/);
+});
