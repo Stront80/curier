@@ -26,4 +26,14 @@ CREATE UNIQUE INDEX order_cancellation_one_pending_idx
 CREATE INDEX order_cancellation_order_history_idx
   ON public.order_cancellation_requests(order_id, requested_at DESC);
 
+REVOKE ALL ON TABLE public.order_cancellation_requests FROM PUBLIC;
+
+DO $
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'curier_app') THEN
+    GRANT SELECT, INSERT, UPDATE ON TABLE public.order_cancellation_requests TO curier_app;
+  END IF;
+END;
+$;
+
 COMMIT;
