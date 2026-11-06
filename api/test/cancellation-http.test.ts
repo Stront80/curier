@@ -321,3 +321,65 @@ test('HTTP integration: cancellation request, participant history, decline and c
 test.after(async () => {
   await db?.end();
 });
+
+
+test('HTTP integration: only the assigned courier can advance delivery through sequential statuses', {
+  skip: !enabled
+}, async () => {
+  process.env.NODE_ENV = 'test';
+  process.env.DATABASE_URL = connectionString!;
+  process.env.JWT_SECRET = 'cancellation-http-secret';
+  await resetFixture();
+
+  const { app } = await import('../src/server.js');
+  const server = app.listen(0, '127.0.0.1');
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('listening', resolve);
+      server.once('error', reject);
+    });
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const auth = (id: string) => ({
+      Authorization: `Bearer ${token(id)}`,
+      'Content-Type': 'application/json'
+    });
+    const changeStatus = (id: string, status: string, actor = courierId) =>
+      fetch(`${baseUrl}/orders/${orderId}/status`, {
+        method: 'POST',
+        headers: auth(actor),
+        body: JSON.stringify({ status })
+      });
+
+    const customerAttempt = await changeStatus(orderId, 'picked_up', customerId);
+    assert.equal(customerAttempt.status, 403);
+
+    const skipStep = await changeStatus(orderId, 'in_transit');
+    assert.equal(skipStep.status, 409);
+
+    const pickedUp = await changeStatus(orderId, 'picked_up');
+    assert.equal(pickedUp.status, 200);
+    assert.equal((await pickedUp.json() as { order: { status: string } }).order.status, 'picked_up');
+
+    const inTransit = await changeStatus(orderId, 'in_transit');
+    assert.equal(inTransit.status, 200);
+    assert.equal((await inTransit.json() as { order: { status: string } }).order.status, 'in_transit');
+
+    const delivered = await changeStatus(orderId, 'delivered');
+    assert.equal(delivered.status, 200);
+    assert.equal((await delivered.json() as { order: { status: string } }).order.status, 'delivered');
+
+    const events = await db!.query(
+      "SELECT payload FROM public.order_events WHERE order_id = $1 AND event_type = 'delivery_status_changed' ORDER BY created_at",
+      [orderId]
+    );
+    assert.equal(events.rowCount, 3);
+    assert.deepEqual(events.rows.map(row => row.payload.to), ['picked_up', 'in_transit', 'delivered']);
+
+    const afterDelivery = await changeStatus(orderId, 'in_transit');
+    assert.equal(afterDelivery.status, 409);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
