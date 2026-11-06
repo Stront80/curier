@@ -454,3 +454,36 @@ test('integration: declining cancellation preserves the active order and offers 
     await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE');
   }
 });
+
+
+test('integration: database rejects cancellation confirmation by the requester', { skip: !enabled }, async () => {
+  await resetFixture();
+  try {
+    const requestId = '40000000-0000-4000-8000-000000000005';
+    await pool!.query(
+      `INSERT INTO public.order_cancellation_requests (id, order_id, requested_by, reason)
+       VALUES ($1, $2, $3, $4)`,
+      [requestId, orderId, customerId, 'Requester cannot approve own cancellation']
+    );
+
+    await assert.rejects(
+      pool!.query(
+        `UPDATE public.order_cancellation_requests
+         SET status = 'confirmed', responded_by = requested_by, responded_at = now()
+         WHERE id = $1`,
+        [requestId]
+      ),
+      (error: unknown) => (error as { code?: string }).code === '23514'
+    );
+
+    const row = await pool!.query(
+      'SELECT status, responded_by, responded_at FROM public.order_cancellation_requests WHERE id = $1',
+      [requestId]
+    );
+    assert.equal(row.rows[0].status, 'pending');
+    assert.equal(row.rows[0].responded_by, null);
+    assert.equal(row.rows[0].responded_at, null);
+  } finally {
+    await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE');
+  }
+});
