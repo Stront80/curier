@@ -83,7 +83,7 @@ test('authentication middleware requires a bearer token and verifies issuer and 
 });
 
 test('database health endpoint returns availability status and handles database errors', () => {
-  const route = routeBody("app.get('/health/db'", "\nlet server:);
+  const route = routeBody("app.get('/health/db'", "\nlet server:");
   assert.match(route, /current_database\(\)/);
   assert.match(route, /current_user/);
   assert.match(route, /status:\s*'ok'/);
