@@ -130,6 +130,21 @@ test('HTTP integration: cancellation request, participant history, decline and c
     assert.ok(requestBody.cancellationRequest.requested_at);
     assert.equal(requestBody.cancellationRequest.status, 'pending');
 
+    const duplicateRequest = await fetch(
+      `${baseUrl}/orders/${orderId}/cancellation-requests`,
+      {
+        method: 'POST',
+        headers: { ...auth(customerId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Duplicate cancellation attempt' })
+      }
+    );
+    assert.equal(duplicateRequest.status, 409);
+    const historyAfterDuplicate = await db!.query(
+      'SELECT id FROM public.order_cancellation_requests WHERE order_id = $1 AND status = $2',
+      [orderId, 'pending']
+    );
+    assert.equal(historyAfterDuplicate.rowCount, 1, 'a duplicate request must not create a second pending record');
+
     const outsiderHistory = await fetch(
       `${baseUrl}/orders/${orderId}/cancellation-requests`,
       { headers: auth(outsiderId) }
