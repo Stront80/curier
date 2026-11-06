@@ -1,45 +1,35 @@
-# Order lifecycle and cancellation — proposal
+# Order lifecycle and cancellation
 
-**Status: draft for product approval.** This document does not change production behavior or database constraints. Existing API behavior and historical data must be checked before implementing these rules.
+**Implementation status:** cancellation request schema, API routes and regression tests are in `api/migrations/005_order_cancellation.sql`, `api/src/server.ts` and the API test suite. This is code/CI only; it has not been deployed to production.
 
-## Current behavior confirmed in the API
+## Existing states and compatibility
 
-- New orders are created through `POST /orders`.
-- Orders with status `open` or `negotiating` can receive offers, provided no courier is assigned.
-- Creating an offer moves an `open` order to `negotiating`.
-- Accepting an offer assigns the courier and records the agreed price through the database transaction.
-- The API currently has no customer/courier cancellation endpoint or delivery-progress endpoint.
-- Early access controls offer visibility/creation; it is not an order state.
+Migration `001_initial.sql` defines the existing `order_status` enum: `open`, `negotiating`, `agreed`, `picked_up`, `in_transit`, `delivered`, `cancelled`, `expired` and `dispute`. The implementation reuses these values and does not introduce new order states.
 
-## Proposed state model
+The API can now initiate cancellation only for an order with an assigned courier in `agreed`, `picked_up` or `in_transit` state. This ensures there is a second party able to confirm. Orders in `open` or `negotiating` state without an assigned courier are deliberately not covered by mutual cancellation yet; there is no second participant to confirm.
 
-| State | Meaning | Proposed next states |
-|---|---|---|
-| `open` | Published; no active negotiation required | `negotiating`, `cancelled` |
-| `negotiating` | One or more offers are being exchanged | `open` (if all offers are withdrawn/closed), `assigned`, `cancelled` |
-| `assigned` | An offer was accepted and a courier assigned | `picked_up`, `cancelled` (subject to approval policy) |
-| `picked_up` | Courier has collected the item | `delivered`, `disputed` |
-| `delivered` | Delivery completed | terminal |
-| `cancelled` | Order cancelled with actor, reason and timestamp | terminal |
-| `disputed` | Delivery requires support/moderation | `delivered` or `cancelled` after resolution |
+## Agreed policy
 
-The proposed `assigned`, `picked_up`, `delivered`, `cancelled` and `disputed` names are design suggestions, not a claim about the current database enum or constraints.
+- Either the customer or assigned courier may submit a cancellation request with a required reason (1–1000 characters).
+- The other participant must confirm or decline; the requester cannot respond to their own request.
+- The same policy applies before pickup (`agreed`) and after pickup (`picked_up` / `in_transit`).
+- Only one pending cancellation request may exist per order. A declined request remains in history; a new request may then be created.
+- Confirmation changes the order to `cancelled` and closes every `pending` or `countered` offer by marking it `rejected` in the same transaction.
+- Request and response records retain initiator, reason, request timestamp, responding party and response timestamp.
+- `order_events` receives `cancellation_requested`, `cancellation_declined` or `order_cancelled` audit events with the relevant identifiers and timestamps.
+- Payment/refund automation is not included; Stars payments are not implemented.
 
-## Cancellation policy questions to approve
+## API routes
 
-1. **Before courier assignment:** customer may cancel; courier may withdraw their own offer. Decide whether cancellation is allowed while counteroffers are pending.
-2. **After assignment, before pickup:** propose allowing either party to request cancellation, but require the other party's confirmation or support intervention rather than silently cancelling.
-3. **After pickup:** propose support-mediated cancellation/dispute only.
-4. **Reasons:** require a reason code and optional comment; record actor, previous state, next state and timestamp in `order_events`.
-5. **Negotiation cleanup:** on cancellation, all pending offers should become non-actionable; acceptance and counteroffer attempts must fail atomically.
-6. **Payments/refunds:** payment processing is not implemented; do not promise automatic refunds until a payment lifecycle exists.
-7. **Notifications:** notify the other party on cancellation requests, decisions and final state changes.
+- `POST /orders/:orderId/cancellation-requests` — JSON body: `{ "reason": "..." }`; starts a request.
+- `POST /orders/:orderId/cancellation-requests/:requestId/confirm` — confirmation by the other participant; cancels the order and closes active offers.
+- `POST /orders/:orderId/cancellation-requests/:requestId/decline` — declines the request and preserves the reason and response history.
 
-## Implementation gates
+All routes require a bearer token, validate UUIDs, lock the order and request rows in a transaction, verify participant identity and reject blocked participants on request/confirmation.
 
-- Confirm the state names against the live schema and existing rows.
-- Approve the cancellation policy above or amend it.
-- Add a single transaction-safe state-transition mechanism with an explicit allowed-transition matrix.
-- Test concurrent accept/cancel attempts, blocked participants, non-participants, duplicate requests and event history against disposable PostgreSQL.
-- Back up production and prepare a tested rollback before any schema migration.
-- Deploy only after CI passes and the operator explicitly approves the production change.
+## Verification and rollout
+
+- Source-level route authorization regression tests cover participant restrictions, required reason, active states, two-party confirmation, offer cleanup and event fields.
+- PostgreSQL integration tests cover the migration's required reason, single-pending-request constraint and confirmation audit fields.
+- CI must pass before the implementation is considered ready.
+- Production migration and deployment are intentionally deferred until explicitly approved. Before rollout, back up production, inspect the deployed schema, apply migration 005, build and test the API, and verify routes in a controlled way.
