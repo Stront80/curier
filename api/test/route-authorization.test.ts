@@ -133,4 +133,7 @@ test('declining a cancellation is restricted to the other order participant and 
   assert.match(route, /cancellation_declined/);
   assert.match(route, /declined_by/);
   assert.match(route, /declined_at/);
+  assert.match(route, /Order is not in a cancellable delivery state/);
+  assert.match(route, /p\.is_blocked/);
+  assert.match(route, /Order participant unavailable/);
 });
