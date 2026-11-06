@@ -6,10 +6,7 @@ import pg from 'pg';
 const connectionString = process.env.TEST_DATABASE_URL;
 const enabled = Boolean(connectionString);
 const pool = enabled ? new pg.Pool({ connectionString }) : null;
-const migration = readFileSync(
-  new URL('../migrations/004_blocked_user_offer_acceptance.sql', import.meta.url),
-  'utf8'
-);
+const migration = readFileSync('migrations/004_blocked_user_offer_acceptance.sql', 'utf8');
 
 const customerId = '10000000-0000-4000-8000-000000000001';
 const courierId = '10000000-0000-4000-8000-000000000002';
