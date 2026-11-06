@@ -53,3 +53,17 @@ test('counteroffers require authentication, a valid ID, an active profile and a 
   assert.match(route, /Offer is no longer counterable/);
   assert.match(route, /has already been countered/);
 });
+
+test('offer acceptance validates the ID and delegates authorization to the database transaction', () => {
+  const route = routeBody("app.post('/offers/:offerId/accept', requireAuth", "app.post('/offers/:offerId/counter'");
+  assert.match(route, /Invalid offer ID/);
+  assert.match(route, /public\.accept_offer_transaction\(\$1::uuid, \$2::uuid\)/);
+  assert.match(route, /Offer could not be accepted/);
+  assert.match(route, /status\(409\)/);
+});
+
+test('profile endpoint does not return blocked profiles', () => {
+  const route = routeBody("app.get('/me', requireAuth", "app.get('/health'");
+  assert.match(route, /is_blocked\s*=\s*false/);
+  assert.match(route, /Profile unavailable/);
+});
