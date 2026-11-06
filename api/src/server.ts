@@ -15,6 +15,11 @@ interface AuthenticatedRequest extends express.Request {
   userId?: string;
 }
 
+function isUuid(value: unknown): value is string {
+  return typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
 function requireAuth(
   req: AuthenticatedRequest,
   res: express.Response,
@@ -259,6 +264,10 @@ app.get('/orders/:orderId/offers', requireAuth, async (req, res) => {
   const userId = (req as AuthenticatedRequest).userId!;
   const { orderId } = req.params;
 
+  if (!isUuid(orderId)) {
+    return res.status(400).json({ error: 'Invalid order ID' });
+  }
+
   try {
     const result = await pool.query(
       `SELECT o.customer_id, o.courier_id
@@ -312,6 +321,10 @@ app.post('/orders/:orderId/offers', requireAuth, async (req, res) => {
   const { orderId } = req.params;
   const { amount, comment } = req.body ?? {};
   const price = Number(amount);
+
+  if (!isUuid(orderId)) {
+    return res.status(400).json({ error: 'Invalid order ID' });
+  }
 
   if (!Number.isFinite(price) || price <= 0 || price > 1000000000) {
     return res.status(400).json({ error: 'Invalid amount' });
