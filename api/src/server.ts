@@ -824,6 +824,20 @@ app.post('/orders/:orderId/cancellation-requests/:requestId/decline', requireAut
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'Cancellation request is no longer pending' });
     }
+    if (!order.courier_id || !['agreed', 'picked_up', 'in_transit'].includes(order.status)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Order is not in a cancellable delivery state' });
+    }
+
+    const profiles = await client.query(
+      `SELECT id, is_blocked FROM public.profiles
+       WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
+      [[order.customer_id, order.courier_id]]
+    );
+    if (profiles.rowCount !== 2 || profiles.rows.some((profile: { is_blocked: boolean }) => profile.is_blocked)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Order participant unavailable' });
+    }
 
     const updated = await client.query(
       `UPDATE public.order_cancellation_requests
@@ -832,6 +846,10 @@ app.post('/orders/:orderId/cancellation-requests/:requestId/decline', requireAut
        RETURNING id, reason, requested_by, requested_at, responded_by, responded_at`,
       [requestId, userId]
     );
+    if (updated.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Cancellation request is no longer pending' });
+    }
     await client.query(
       `INSERT INTO public.order_events (order_id, actor_id, event_type, payload)
        VALUES ($1, $2, 'cancellation_declined', $3::jsonb)`,
