@@ -67,3 +67,25 @@ test('profile endpoint does not return blocked profiles', () => {
   assert.match(route, /is_blocked\s*=\s*false/);
   assert.match(route, /Profile unavailable/);
 });
+
+test('authentication middleware requires a bearer token and verifies issuer and audience', () => {
+  const from = source.indexOf('function requireAuth(');
+  const to = source.indexOf('\nif (!databaseUrl)', from);
+  assert.notEqual(from, -1);
+  assert.notEqual(to, -1);
+  const middleware = source.slice(from, to);
+  assert.match(middleware, /startsWith\('Bearer '\)/);
+  assert.match(middleware, /Authentication required/);
+  assert.match(middleware, /jwt\.verify\(token, secret/);
+  assert.match(middleware, /issuer:\s*'curier-api'/);
+  assert.match(middleware, /audience:\s*'curier-app'/);
+  assert.match(middleware, /Invalid or expired token/);
+});
+
+test('database health endpoint returns availability status and handles database errors', () => {
+  const route = routeBody("app.get('/health/db'", "\napp.listen(");
+  assert.match(route, /current_database\(\)/);
+  assert.match(route, /current_user/);
+  assert.match(route, /status:\s*'ok'/);
+  assert.match(route, /status\(503\)/);
+});
