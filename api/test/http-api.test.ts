@@ -47,6 +47,19 @@ test('HTTP: health responds and protected routes reject missing or invalid beare
     assert.deepEqual(await unauthorized.json(), {
       error: 'Invalid or expired token'
     });
+
+    const validTokenForMissingProfile = jwt.sign(
+      { sub: '10000000-0000-4000-8000-000000000001' },
+      'http-test-secret',
+      { issuer: 'curier-api', audience: 'curier-app' }
+    );
+    const unavailableProfile = await fetch(`${baseUrl}/me`, {
+      headers: { Authorization: `Bearer ${validTokenForMissingProfile}` }
+    });
+    assert.equal(unavailableProfile.status, 401);
+    assert.deepEqual(await unavailableProfile.json(), {
+      error: 'Profile unavailable'
+    });
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
