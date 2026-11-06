@@ -368,3 +368,89 @@ test('integration: confirmed cancellation atomically cancels the order, closes a
     await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE');
   }
 });
+
+
+test('integration: declining cancellation preserves the active order and offers and writes audit history', { skip: !enabled }, async () => {
+  await resetFixture();
+  try {
+    const requestId = '40000000-0000-4000-8000-000000000004';
+    await pool!.query(
+      "UPDATE public.orders SET status = 'agreed', courier_id = $2 WHERE id = $1",
+      [orderId, courierId]
+    );
+    await pool!.query(
+      "UPDATE public.offers SET status = 'pending' WHERE id = $1",
+      [offerId]
+    );
+    await pool!.query(
+      `INSERT INTO public.order_cancellation_requests (id, order_id, requested_by, reason)
+       VALUES ($1, $2, $3, $4)`,
+      [requestId, orderId, customerId, 'Customer changed their mind']
+    );
+
+    await pool!.query('BEGIN');
+    try {
+      const updated = await pool!.query(
+        `UPDATE public.order_cancellation_requests
+         SET status = 'declined', responded_by = $2, responded_at = now()
+         WHERE id = $1 AND status = 'pending'
+         RETURNING reason, requested_by, requested_at, responded_by, responded_at`,
+        [requestId, courierId]
+      );
+      assert.equal(updated.rowCount, 1);
+      await pool!.query(
+        `INSERT INTO public.order_events (order_id, actor_id, event_type, payload)
+         VALUES ($1, $2, 'cancellation_declined', $3::jsonb)`,
+        [orderId, courierId, JSON.stringify({
+          cancellation_request_id: requestId,
+          reason: updated.rows[0].reason,
+          requested_by: updated.rows[0].requested_by,
+          requested_at: updated.rows[0].requested_at,
+          declined_by: courierId,
+          declined_at: updated.rows[0].responded_at
+        })]
+      );
+      await pool!.query('COMMIT');
+    } catch (error) {
+      await pool!.query('ROLLBACK');
+      throw error;
+    }
+
+    const order = await pool!.query('SELECT status FROM public.orders WHERE id = $1', [orderId]);
+    assert.equal(order.rows[0].status, 'agreed');
+
+    const offers = await pool!.query(
+      'SELECT status FROM public.offers WHERE order_id = $1',
+      [orderId]
+    );
+    assert.ok(offers.rows.length > 0);
+    assert.ok(offers.rows.every(row => row.status === 'pending'));
+
+    const request = await pool!.query(
+      `SELECT status, reason, requested_by, requested_at, responded_by, responded_at
+       FROM public.order_cancellation_requests WHERE id = $1`,
+      [requestId]
+    );
+    assert.equal(request.rows[0].status, 'declined');
+    assert.equal(request.rows[0].reason, 'Customer changed their mind');
+    assert.equal(request.rows[0].requested_by, customerId);
+    assert.equal(request.rows[0].responded_by, courierId);
+    assert.ok(request.rows[0].requested_at instanceof Date);
+    assert.ok(request.rows[0].responded_at instanceof Date);
+
+    const event = await pool!.query(
+      `SELECT actor_id, event_type, payload FROM public.order_events
+       WHERE order_id = $1 AND event_type = 'cancellation_declined'`,
+      [orderId]
+    );
+    assert.equal(event.rows.length, 1);
+    assert.equal(event.rows[0].actor_id, courierId);
+    assert.equal(event.rows[0].payload.reason, 'Customer changed their mind');
+    assert.equal(event.rows[0].payload.requested_by, customerId);
+    assert.equal(event.rows[0].payload.declined_by, courierId);
+    assert.ok(event.rows[0].payload.requested_at);
+    assert.ok(event.rows[0].payload.declined_at);
+  } finally {
+    await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE');
+  }
+});
