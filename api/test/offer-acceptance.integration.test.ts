@@ -7,6 +7,7 @@ const connectionString = process.env.TEST_DATABASE_URL;
 const enabled = Boolean(connectionString);
 const pool = enabled ? new pg.Pool({ connectionString }) : null;
 const migration = readFileSync('migrations/004_blocked_user_offer_acceptance.sql', 'utf8');
+const cancellationMigration = readFileSync('migrations/005_order_cancellation.sql', 'utf8');
 
 const customerId = '10000000-0000-4000-8000-000000000001';
 const courierId = '10000000-0000-4000-8000-000000000002';
@@ -57,6 +58,7 @@ async function resetFixture() {
     );
   `);
   await pool.query(migration);
+  await pool.query(cancellationMigration);
   await pool.query(
     'INSERT INTO public.profiles (id, is_blocked) VALUES ($1, false), ($2, false)',
     [customerId, courierId]
@@ -151,4 +153,79 @@ for (const blockedParty of ['customer', 'courier'] as const) {
 
 test.after(async () => {
   await pool?.end();
+});
+
+
+test('integration: cancellation requests require a reason and allow only one pending request per order', { skip: !enabled }, async () => {
+  await resetFixture();
+  try {
+    const requestId = '40000000-0000-4000-8000-000000000001';
+    await pool!.query(
+      `INSERT INTO public.order_cancellation_requests
+         (id, order_id, requested_by, reason)
+       VALUES ($1, $2, $3, $4)`,
+      [requestId, orderId, customerId, 'Customer requested cancellation']
+    );
+    await assert.rejects(
+      pool!.query(
+        `INSERT INTO public.order_cancellation_requests
+           (order_id, requested_by, reason)
+         VALUES ($1, $2, $3)`,
+        [orderId, courierId, 'Duplicate pending request']
+      ),
+      (error: unknown) => (error as { code?: string }).code === '23505'
+    );
+    await assert.rejects(
+      pool!.query(
+        `INSERT INTO public.order_cancellation_requests
+           (order_id, requested_by, reason)
+         VALUES ($1, $2, $3)`,
+        [orderId, customerId, '   ']
+      ),
+      (error: unknown) => (error as { code?: string }).code === '23514'
+    );
+    const row = await pool!.query(
+      `SELECT status, requested_by, reason, requested_at
+       FROM public.order_cancellation_requests WHERE id = $1`,
+      [requestId]
+    );
+    assert.equal(row.rows[0].status, 'pending');
+    assert.equal(row.rows[0].requested_by, customerId);
+    assert.equal(row.rows[0].reason, 'Customer requested cancellation');
+    assert.ok(row.rows[0].requested_at instanceof Date);
+  } finally {
+    await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE');
+  }
+});
+
+test('integration: cancellation request records the second party and confirmation timestamp', { skip: !enabled }, async () => {
+  await resetFixture();
+  try {
+    const requestId = '40000000-0000-4000-8000-000000000002';
+    await pool!.query(
+      `INSERT INTO public.order_cancellation_requests
+         (id, order_id, requested_by, reason)
+       VALUES ($1, $2, $3, $4)`,
+      [requestId, orderId, customerId, 'Delivery can no longer proceed']
+    );
+    await pool!.query(
+      `UPDATE public.order_cancellation_requests
+       SET status = 'confirmed', responded_by = $2, responded_at = now()
+       WHERE id = $1`,
+      [requestId, courierId]
+    );
+    const row = await pool!.query(
+      `SELECT status, requested_by, requested_at, responded_by, responded_at
+       FROM public.order_cancellation_requests WHERE id = $1`,
+      [requestId]
+    );
+    assert.equal(row.rows[0].status, 'confirmed');
+    assert.equal(row.rows[0].requested_by, customerId);
+    assert.equal(row.rows[0].responded_by, courierId);
+    assert.ok(row.rows[0].requested_at instanceof Date);
+    assert.ok(row.rows[0].responded_at instanceof Date);
+    assert.notEqual(row.rows[0].requested_by, row.rows[0].responded_by);
+  } finally {
+    await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.order_cancellation_requests, public.orders, public.profiles CASCADE');
+  }
 });
