@@ -22,7 +22,7 @@ function signedInitData(options: {
   const dataCheckString = [...params.entries()]
     .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
     .map(([key, value]) => `${key}=${value}`)
-    .join('\n');
+    .join('\\n');
 
   const secretKey = createHmac('sha256', 'WebAppData')
     .update(botToken)
@@ -46,6 +46,7 @@ test('accepts correctly signed, recent Telegram initData', () => {
 test('rejects a modified or invalid signature', () => {
   assert.equal(verifyTelegramInitData(signedInitData({ alterHash: true }), botToken), null);
   assert.equal(verifyTelegramInitData('auth_date=1&user=%7B%7D&hash=bad', botToken), null);
+  assert.equal(verifyTelegramInitData(signedInitData(), ''), null);
 });
 
 test('rejects stale, invalid and future authentication dates', () => {
@@ -54,15 +55,21 @@ test('rejects stale, invalid and future authentication dates', () => {
   assert.equal(verifyTelegramInitData(signedInitData({ authDate: staleDate }), botToken), null);
   assert.equal(verifyTelegramInitData(signedInitData({ authDate: 0 }), botToken), null);
   assert.equal(verifyTelegramInitData(signedInitData({ authDate: futureDate }), botToken), null);
+  assert.equal(verifyTelegramInitData(signedInitData({ authDate: 1.5 }), botToken), null);
 });
 
 test('rejects malformed user payloads and invalid optional fields', () => {
   const invalidUsers = [
     { id: -1, first_name: 'Bad' },
+    { id: 1.5, first_name: 'Bad' },
+    { id: Number.MAX_SAFE_INTEGER + 1, first_name: 'Bad' },
     { id: 123, first_name: 4 },
     { id: 123, first_name: '' },
+    { id: 123, first_name: 'x'.repeat(257) },
     { id: 123, first_name: 'Good', username: 42 },
+    { id: 123, first_name: 'Good', username: 'x'.repeat(65) },
     { id: 123, first_name: 'Good', language_code: false },
+    { id: 123, first_name: 'Good', language_code: 'x'.repeat(17) },
     { id: 123, first_name: 'Good', last_name: 'x'.repeat(257) },
     null,
     ['not', 'an', 'object']
