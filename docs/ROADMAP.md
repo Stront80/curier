@@ -12,8 +12,8 @@ This is an implementation sequence, not a claim that the listed future features 
 - [x] Add regression checks for route authorization and validation, including blocked profiles, malformed IDs, offer visibility and counteroffer guards.
 - [x] Add HTTP-level API tests for health responses and rejection of missing, invalid and expired bearer tokens against the CI PostgreSQL service. Authenticated `/me` profile-absence behavior remains covered by source-level checks until the HTTP fixture includes the application schema.
 - [x] Define allowed delivery state transitions (`agreed -> picked_up -> in_transit -> delivered`) and implement mutual cancellation rules with reason and event history.
-- [ ] Verify backup/restore and rollback steps.
-- [x] Add CI to build frontend and API and run tests on pull requests (latest verified successful run: [`376ca44`](https://github.com/Stront80/curier/actions/runs/42237606375); Mini App build: [run #99](https://github.com/Stront80/curier/actions/runs/42237606472)).
+- [x] Document the safe VPS release checklist; production backup/restore verification and rollback execution remain required during the approved release.
+- [x] Add CI to build frontend and API and run tests on pull requests (latest verified successful run: [CI #94](https://github.com/Stront80/curier/actions/runs/42238857402); Mini App build: [run #103](https://github.com/Stront80/curier/actions/runs/42238857430)).
 
 Exit criteria: builds and automated tests pass; critical order/offer permissions are covered; no deploy while checks fail.
 
@@ -55,3 +55,10 @@ Exit criteria: builds and automated tests pass; critical order/offer permissions
 - Admin role scope and who may grant elevated permissions.
 - Subscription names, prices, duration and role-specific benefits.
 - Donation behavior and the chosen payment flow.
+
+
+## VPS release preparation
+
+- [x] Add [`docs/VPS-RELEASE-CHECKLIST.md`](VPS-RELEASE-CHECKLIST.md) covering read-only schema preflight, backup and isolated restore verification, approved release steps, smoke checks and stop/rollback conditions.
+- [ ] Verify production schema and backup/restore directly on the VPS before the first release; requires an approved maintenance session and host access.
+- [ ] Deploy only after explicit owner approval.
