@@ -6,7 +6,7 @@
 
 Migration `001_initial.sql` defines the existing `order_status` enum: `open`, `negotiating`, `agreed`, `picked_up`, `in_transit`, `delivered`, `cancelled`, `expired` and `dispute`. The implementation reuses these values and does not introduce new order states.
 
-The API can now initiate cancellation only for an order with an assigned courier in `agreed`, `picked_up` or `in_transit` state. This ensures there is a second party able to confirm. Orders in `open` or `negotiating` state without an assigned courier are deliberately not covered by mutual cancellation yet; there is no second participant to confirm.
+The API can now initiate cancellation only for an order with an assigned courier in `agreed`, `picked_up` or `in_transit` state. Assigned couriers can retrieve their own deliveries from the order list, and the Mini App exposes cancellation reason/history plus confirm/decline actions to the order participants. This ensures there is a second party able to confirm. Orders in `open` or `negotiating` state without an assigned courier are deliberately not covered by mutual cancellation yet; there is no second participant to confirm.
 
 ## Agreed policy
 
