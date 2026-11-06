@@ -7,11 +7,11 @@ This is an implementation sequence, not a claim that the listed future features 
 - [x] Document the actual Express/PostgreSQL deployment architecture.
 - [x] Record the current negotiation and payment boundaries.
 - [ ] Add repeatable API tests for authentication, order visibility, offer/counteroffer permissions and acceptance.
-- [ ] Make npm test execute real tests.
+- [x] Make npm test execute real tests (Telegram authentication tests are running in CI).
 - [ ] Review route authorization and validation, including blocked users and malformed IDs.
 - [ ] Define allowed order state transitions and add cancellation rules.
 - [ ] Verify backup/restore and rollback steps.
-- [ ] Add CI to build frontend and API and run tests on pull requests.
+- [x] Add CI to build frontend and API and run tests on pull requests (verified successful on commit `3d8da3f`).
 
 Exit criteria: builds and automated tests pass; critical order/offer permissions are covered; no deploy while checks fail.
 
