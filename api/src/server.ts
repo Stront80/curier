@@ -166,6 +166,7 @@ app.get('/orders', requireAuth, async (req, res) => {
        FROM public.orders o
        JOIN public.profiles p ON p.id = $1 AND p.is_blocked = false
        WHERE o.customer_id = $1
+          OR o.courier_id = $1
           OR (
             o.status IN ('open', 'negotiating')
             AND o.courier_id IS NULL
