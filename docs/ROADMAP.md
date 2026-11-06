@@ -6,14 +6,14 @@ This is an implementation sequence, not a claim that the listed future features 
 
 - [x] Document the actual Express/PostgreSQL deployment architecture.
 - [x] Record the current negotiation and payment boundaries.
-- [ ] Add repeatable API tests for authentication, order visibility, offer/counteroffer permissions and acceptance.
+- [x] Add repeatable API tests for authentication, order visibility, offer/counteroffer permissions and acceptance (source-level regression checks plus PostgreSQL integration tests).
 - [x] Add PostgreSQL integration coverage for offer acceptance: active participants succeed; blocked participants and non-participants are rejected without assigning the order.
 - [x] Make npm test execute real tests (Telegram authentication and offer-acceptance tests run in CI).
 - [x] Add regression checks for route authorization and validation, including blocked profiles, malformed IDs, offer visibility and counteroffer guards.
-- [ ] Add HTTP-level API tests that exercise authentication middleware and route responses against a disposable test database.
+- [x] Add HTTP-level API tests for health responses and rejection of missing, invalid and expired bearer tokens against the CI PostgreSQL service. Authenticated `/me` profile-absence behavior remains covered by source-level checks until the HTTP fixture includes the application schema.
 - [ ] Define allowed order state transitions and add cancellation rules.
 - [ ] Verify backup/restore and rollback steps.
-- [x] Add CI to build frontend and API and run tests on pull requests (latest verified successful run: [`dadd85a`](https://github.com/Stront80/curier/actions/runs/42159476813)).
+- [x] Add CI to build frontend and API and run tests on pull requests (latest verified successful run: [`d1edd42`](https://github.com/Stront80/curier/actions/runs/42164228047)).
 
 Exit criteria: builds and automated tests pass; critical order/offer permissions are covered; no deploy while checks fail.
 
