@@ -93,6 +93,35 @@ test('integration: active customer and courier can accept a pending offer', { sk
   }
 });
 
+
+test('integration: rejects acceptance by a non-participant', { skip: !enabled }, async () => {
+  await resetFixture();
+  try {
+    const outsiderId = '10000000-0000-4000-8000-000000000003';
+    await pool!.query(
+      'INSERT INTO public.profiles (id, is_blocked) VALUES ($1, false)',
+      [outsiderId]
+    );
+
+    await assert.rejects(
+      pool!.query(
+        'SELECT public.accept_offer_transaction($1::uuid, $2::uuid)',
+        [offerId, outsiderId]
+      ),
+      /Only order participants can accept offers/
+    );
+
+    const order = await pool!.query(
+      'SELECT status, courier_id FROM public.orders WHERE id = $1',
+      [orderId]
+    );
+    assert.equal(order.rows[0].status, 'negotiating');
+    assert.equal(order.rows[0].courier_id, null);
+  } finally {
+    await pool!.query('DROP FUNCTION IF EXISTS public.accept_offer_transaction(uuid, uuid); DROP TABLE IF EXISTS public.order_events, public.offers, public.orders, public.profiles CASCADE');
+  }
+});
+
 for (const blockedParty of ['customer', 'courier'] as const) {
   test(`integration: rejects acceptance when the ${blockedParty} is blocked`, { skip: !enabled }, async () => {
     await resetFixture();
