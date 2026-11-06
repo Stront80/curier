@@ -141,6 +141,33 @@ test('HTTP integration: cancellation request, participant history, decline and c
     );
     assert.equal(historyAfterEmptyReason.rowCount, 0, 'invalid reasons must not create cancellation requests');
 
+    const overlongReasonRequest = await fetch(
+      `${baseUrl}/orders/${orderId}/cancellation-requests`,
+      {
+        method: 'POST',
+        headers: { ...auth(customerId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'x'.repeat(1001) })
+      }
+    );
+    assert.equal(overlongReasonRequest.status, 400);
+
+    await db!.query('UPDATE public.profiles SET is_blocked = true WHERE id = $1', [courierId]);
+    const blockedParticipantRequest = await fetch(
+      `${baseUrl}/orders/${orderId}/cancellation-requests`,
+      {
+        method: 'POST',
+        headers: { ...auth(customerId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Participant profile is blocked' })
+      }
+    );
+    assert.equal(blockedParticipantRequest.status, 409);
+    await db!.query('UPDATE public.profiles SET is_blocked = false WHERE id = $1', [courierId]);
+    const historyAfterBlockedParticipant = await db!.query(
+      'SELECT id FROM public.order_cancellation_requests WHERE order_id = $1',
+      [orderId]
+    );
+    assert.equal(historyAfterBlockedParticipant.rowCount, 0, 'blocked participants must not create cancellation requests');
+
     const invalidStateRequest = await fetch(
       `${baseUrl}/orders/${openOrderId}/cancellation-requests`,
       {
