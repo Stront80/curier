@@ -21,6 +21,7 @@ The API can now initiate cancellation only for an order with an assigned courier
 
 ## API routes
 
+- `GET /orders/:orderId/cancellation-requests` — returns up to 100 cancellation requests, newest first; only the customer or assigned courier may view them.
 - `POST /orders/:orderId/cancellation-requests` — JSON body: `{ "reason": "..." }`; starts a request.
 - `POST /orders/:orderId/cancellation-requests/:requestId/confirm` — confirmation by the other participant; cancels the order and closes active offers.
 - `POST /orders/:orderId/cancellation-requests/:requestId/decline` — declines the request and preserves the reason and response history.
