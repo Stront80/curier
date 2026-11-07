@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import pg from 'pg';
+import { readFile } from 'node:fs/promises';
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -106,13 +107,26 @@ async function contacts(chat:number,telegramId:number,id:string) {
   return send(chat,`Контакт заказчика: ${u.first_name??''} ${u.last_name??''}\n${link}`,
     {reply_markup:{inline_keyboard:[[{text:'Написать заказчику',url:link}]]}});
 }
-async function donate(chat:number,id:number,stars:number) {
-  const payload=`donation:${crypto.randomUUID()}`;
-  await pool.query("INSERT INTO public.star_payments(telegram_id,purpose,stars,status,payment_payload) VALUES($1,'support',$2,'pending',$3)",
-    [String(id),stars,payload]);
-  await tg('sendInvoice',{chat_id:chat,title:'Поддержать проект',description:'Добровольный донат на развитие проекта «Курьеры с торговлей».',
-    payload,provider_token:'',currency:'XTR',prices:[{label:'Донат проекту',amount:stars}]});
+async function donate(chat:number) {
+  const url=process.env.DONATION_PAYMENT_URL;
+  if(!url) return send(chat,'Ссылка для доната пока не настроена. Попробуйте позже.');
+  const qrPath=process.env.DONATION_QR_FILE || new URL('../assets/ozon-donate.jpg',import.meta.url);
+  try {
+    const photo=await readFile(qrPath);
+    const form=new FormData();
+    form.append('chat_id',String(chat));
+    form.append('caption','Добровольная поддержка проекта «Курьеры с торговлей» ❤️ Донат не обязателен и не влияет на доступ к функциям бота.');
+    form.append('photo',new Blob([photo],{type:'image/jpeg'}),'ozon-donate.jpg');
+    const response=await fetch(`${base}/sendPhoto`,{method:'POST',body:form,signal:AbortSignal.timeout(35_000)});
+    const data=await response.json() as any;
+    if(!response.ok||!data.ok) throw new Error(data.description??'Telegram sendPhoto failed');
+  } catch(e) {
+    console.error('Donation QR image error:',e);
+    await send(chat,'Не удалось показать QR-код. Вот ссылка для добровольного доната:');
+  }
+  await send(chat,`Ссылка для оплаты через Ozon Банк / СБП:\\n${url}\\n\\nДонат полностью добровольный. Все функции бота доступны бесплатно независимо от поддержки проекта.`);
 }
+
 async function message(m:any) {
   if(!m.from||m.chat.type!=='private') return;
   const chat=m.chat.id, id=m.from.id, text=(m.text??'').trim();
@@ -121,7 +135,7 @@ async function message(m:any) {
   if(text==='/help'||text==='Помощь / Правила') return send(chat,'Указывайте достоверные данные, не размещайте запрещённые товары и чужие персональные данные. Контакты не видны в общей ленте. Для жалоб обратитесь к администратору.',{reply_markup:menu});
   if(text==='Посмотреть заказы'||text==='/orders') return available(chat);
   if(text==='Мои заказы'||text==='/myorders') return mine(chat,id);
-  if(text==='Поддержать проект'||text==='/donate') return send(chat,'Спасибо за поддержку! Выберите сумму доната в Telegram Stars:',{reply_markup:{inline_keyboard:[[{text:'⭐ 10',callback_data:'donate:10'},{text:'⭐ 50',callback_data:'donate:50'},{text:'⭐ 100',callback_data:'donate:100'}]]}});
+  if(text==='Поддержать проект'||text==='/donate') return donate(chat);
   if(text==='Разместить заказ'||text==='/neworder') { await session(id,{step:'city',data:{}}); return send(chat,'Укажите город:'); }
   const s=await getSession(id); if(!s) return send(chat,'Выберите действие в меню.',{reply_markup:menu});
   const d=s.data??{};
@@ -152,7 +166,6 @@ async function update(u:any) {
   if(u.callback_query) {
     const q=u.callback_query,chat=q.message?.chat.id,data=q.data??'';if(!chat)return;
     await tg('answerCallbackQuery',{callback_query_id:q.id});
-    if(data.startsWith('donate:')) { const n=Number(data.split(':')[1]);if([10,50,100].includes(n))await donate(chat,q.from.id,n);return; }
     const [action,id]=data.split(':');if(!/^[0-9a-f-]{36}$/i.test(id??''))return;
     if(action==='take') { try { const customer=await claim(q.from.id,id);await send(chat,'Заказ закреплён за вами. Контакты доступны в разделе «Мои заказы».');await send(customer,'Ваш заказ получил курьер. Откройте «Мои заказы» для проверки статуса.'); } catch(e) { await send(chat,e instanceof Error?e.message:'Не удалось взять заказ.'); } }
     if(action==='contact') await contacts(chat,q.from.id,id);
