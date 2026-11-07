@@ -3,16 +3,16 @@ import pg from 'pg';
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const token = process.env.TELEGRAM_BOT_TOKEN;
-const base = token ? \`https://api.telegram.org/bot\${token}\` : '';
+const base = token ? `https://api.telegram.org/bot${token}` : '';
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 async function tg(method: string, body: Record<string, unknown> = {}) {
-  const response = await fetch(\`\${base}/\${method}\`, {
+  const response = await fetch(`${base}/${method}`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body), signal: AbortSignal.timeout(35_000)
   });
   const data = await response.json() as any;
-  if (!response.ok || !data.ok) throw new Error(data.description ?? \`Telegram \${method} failed\`);
+  if (!response.ok || !data.ok) throw new Error(data.description ?? `Telegram ${method} failed`);
   return data.result;
 }
 const send = (chat_id: number, text: string, extra = {}) => tg('sendMessage', { chat_id, text, ...extra });
@@ -20,18 +20,18 @@ const menu = { keyboard: [[{text:'Разместить заказ'},{text:'По�
 
 async function profile(user: any) {
   const r = await pool.query(
-    \`INSERT INTO public.profiles(telegram_id,username,first_name,last_name,language)
+    `INSERT INTO public.profiles(telegram_id,username,first_name,last_name,language)
      VALUES($1,$2,$3,$4,$5) ON CONFLICT(telegram_id) DO UPDATE SET
      username=EXCLUDED.username,first_name=EXCLUDED.first_name,last_name=EXCLUDED.last_name
-     RETURNING id,is_blocked\`,
+     RETURNING id,is_blocked`,
     [String(user.id),user.username??null,user.first_name??'',user.last_name??null,user.language_code==='en'?'en':'ru']);
   if (!r.rowCount || r.rows[0].is_blocked) throw new Error('Профиль заблокирован или недоступен.');
   return r.rows[0].id as string;
 }
 async function session(id:number, state:any) {
   if (!state) return pool.query('DELETE FROM public.bot_sessions WHERE telegram_id=$1',[String(id)]);
-  return pool.query(\`INSERT INTO public.bot_sessions(telegram_id,state,updated_at) VALUES($1,$2::jsonb,now())
-    ON CONFLICT(telegram_id) DO UPDATE SET state=EXCLUDED.state,updated_at=now()\`,[String(id),JSON.stringify(state)]);
+  return pool.query(`INSERT INTO public.bot_sessions(telegram_id,state,updated_at) VALUES($1,$2::jsonb,now())
+    ON CONFLICT(telegram_id) DO UPDATE SET state=EXCLUDED.state,updated_at=now()`,[String(id),JSON.stringify(state)]);
 }
 async function getSession(id:number) {
   const r=await pool.query("SELECT state FROM public.bot_sessions WHERE telegram_id=$1 AND updated_at>now()-interval '2 hours'",[String(id)]);
@@ -40,37 +40,37 @@ async function getSession(id:number) {
 async function createOrder(telegramId:number,d:any) {
   const me=await pool.query('SELECT id FROM public.profiles WHERE telegram_id=$1 AND is_blocked=false',[String(telegramId)]);
   if (!me.rowCount) throw new Error('Профиль не найден. Нажмите /start.');
-  const title=d.title || \`Заказ: \${d.city}\`;
+  const title=d.title || `Заказ: ${d.city}`;
   const description=d.description || 'Подробности доставки заказчик уточнит с курьером.';
-  const r=await pool.query(\`INSERT INTO public.orders
+  const r=await pool.query(`INSERT INTO public.orders
     (customer_id,title,pickup_address,dropoff_address,description,initial_price,city,pickup_at_text,metro_or_district,reward_amount,reward_currency)
     VALUES($1,$2,$3,'Уточняется',$4,$5,$6,$7,$8,$5,$9)
-    RETURNING id,title,city,pickup_at_text,metro_or_district,reward_amount,reward_currency,status\`,
-    [me.rows[0].id,title,\`\${d.city}, \${d.metro}\`,description,Number(d.amount),d.city,d.when,d.metro,d.currency]);
+    RETURNING id,title,city,pickup_at_text,metro_or_district,reward_amount,reward_currency,status`,
+    [me.rows[0].id,title,`${d.city}, ${d.metro}`,description,Number(d.amount),d.city,d.when,d.metro,d.currency]);
   await pool.query("INSERT INTO public.order_events(order_id,actor_id,event_type,payload) VALUES($1,$2,'order_created_via_bot',$3::jsonb)",
     [r.rows[0].id,me.rows[0].id,JSON.stringify({source:'telegram_bot'})]);
   return r.rows[0];
 }
 async function card(chat:number,o:any,claim=false,contact=false) {
-  const text=[\`📦 \${o.title}\`,\`Город: \${o.city??'—'}\`,\`Забрать: \${o.pickup_at_text??'—'}\`,
-    \`Район/метро: \${o.metro_or_district??'—'}\`,\`Вознаграждение: \${o.reward_amount??o.initial_price??'—'} \${o.reward_currency??''}\`,
-    \`Описание: \${o.description??'—'}\`,\`Статус: \${o.status}\`,\`ID: \${o.id}\`].join('\\n');
+  const text=[`📦 ${o.title}`,`Город: ${o.city??'—'}`,`Забрать: ${o.pickup_at_text??'—'}`,
+    `Район/метро: ${o.metro_or_district??'—'}`,`Вознаграждение: ${o.reward_amount??o.initial_price??'—'} ${o.reward_currency??''}`,
+    `Описание: ${o.description??'—'}`,`Статус: ${o.status}`,`ID: ${o.id}`].join('\n');
   const rows:any[]=[];
-  if(claim) rows.push([{text:'Взять заказ',callback_data:\`take:\${o.id}\`}]);
-  if(contact) rows.push([{text:'Посмотреть контакты',callback_data:\`contact:\${o.id}\`}]);
+  if(claim) rows.push([{text:'Взять заказ',callback_data:`take:${o.id}`}]);
+  if(contact) rows.push([{text:'Посмотреть контакты',callback_data:`contact:${o.id}`}]);
   await send(chat,text,rows.length?{reply_markup:{inline_keyboard:rows}}:{});
 }
 async function available(chat:number) {
-  const r=await pool.query(\`SELECT id,title,description,initial_price,status,city,pickup_at_text,metro_or_district,reward_amount,reward_currency
+  const r=await pool.query(`SELECT id,title,description,initial_price,status,city,pickup_at_text,metro_or_district,reward_amount,reward_currency
     FROM public.orders WHERE status IN('open','negotiating') AND courier_id IS NULL AND early_access_until<=now()
-    ORDER BY created_at DESC LIMIT 10\`);
+    ORDER BY created_at DESC LIMIT 10`);
   if(!r.rowCount) return send(chat,'Сейчас нет доступных заказов.',{reply_markup:menu});
   await send(chat,'Доступные заказы. Контакты заказчика скрыты до назначения заказа.');
   for(const o of r.rows) await card(chat,o,true,false);
 }
 async function mine(chat:number,telegramId:number) {
-  const r=await pool.query(\`SELECT o.*,me.id AS my_id FROM public.orders o JOIN public.profiles me ON me.telegram_id=$1
-    WHERE o.customer_id=me.id OR o.courier_id=me.id ORDER BY o.created_at DESC LIMIT 20\`,[String(telegramId)]);
+  const r=await pool.query(`SELECT o.*,me.id AS my_id FROM public.orders o JOIN public.profiles me ON me.telegram_id=$1
+    WHERE o.customer_id=me.id OR o.courier_id=me.id ORDER BY o.created_at DESC LIMIT 20`,[String(telegramId)]);
   if(!r.rowCount) return send(chat,'У вас пока нет заказов.',{reply_markup:menu});
   for(const o of r.rows) await card(chat,o,false,o.courier_id===o.my_id);
 }
@@ -98,16 +98,16 @@ async function claim(telegramId:number,id:string) {
   finally { c.release(); }
 }
 async function contacts(chat:number,telegramId:number,id:string) {
-  const r=await pool.query(\`SELECT c.telegram_id,c.username,c.first_name,c.last_name FROM public.orders o
+  const r=await pool.query(`SELECT c.telegram_id,c.username,c.first_name,c.last_name FROM public.orders o
     JOIN public.profiles me ON me.telegram_id=$2 AND me.is_blocked=false
-    JOIN public.profiles c ON c.id=o.customer_id WHERE o.id=$1 AND o.courier_id=me.id\`,[id,String(telegramId)]);
+    JOIN public.profiles c ON c.id=o.customer_id WHERE o.id=$1 AND o.courier_id=me.id`,[id,String(telegramId)]);
   if(!r.rowCount) return send(chat,'Контакты доступны только курьеру, которому назначен этот заказ.');
-  const u=r.rows[0], link=u.username?\`https://t.me/\${u.username}\`:\`tg://user?id=\${u.telegram_id}\`;
-  return send(chat,\`Контакт заказчика: \${u.first_name??''} \${u.last_name??''}\\n\${link}\`,
+  const u=r.rows[0], link=u.username?`https://t.me/${u.username}`:`tg://user?id=${u.telegram_id}`;
+  return send(chat,`Контакт заказчика: ${u.first_name??''} ${u.last_name??''}\n${link}`,
     {reply_markup:{inline_keyboard:[[{text:'Написать заказчику',url:link}]]}});
 }
 async function donate(chat:number,id:number,stars:number) {
-  const payload=\`donation:\${crypto.randomUUID()}\`;
+  const payload=`donation:${crypto.randomUUID()}`;
   await pool.query("INSERT INTO public.star_payments(telegram_id,purpose,stars,status,payment_payload) VALUES($1,'support',$2,'pending',$3)",
     [String(id),stars,payload]);
   await tg('sendInvoice',{chat_id:chat,title:'Поддержать проект',description:'Добровольный донат на развитие проекта «Курьеры с торговлей».',
@@ -128,11 +128,11 @@ async function message(m:any) {
   if(s.step==='city') { if(!text||text.length>120)return send(chat,'Укажите город (до 120 символов).'); d.city=text; s.step='when'; await session(id,s); return send(chat,'Когда забрать заказ? Например: 12.11.2026 14:30 (местное время).'); }
   if(s.step==='when') { if(text.length<3||text.length>80)return send(chat,'Укажите дату и время (до 80 символов).'); d.when=text;s.step='metro';await session(id,s);return send(chat,'Укажите станцию метро или район (обязательно).'); }
   if(s.step==='metro') { if(!text||text.length>160)return send(chat,'Укажите станцию или район (до 160 символов).');d.metro=text;s.step='reward';await session(id,s);return send(chat,'Вознаграждение курьеру, сумма и код валюты: например 25 EUR.'); }
-  if(s.step==='reward') { const x=text.match(/^(\\d+(?:[.,]\\d{1,2})?)\\s*([A-Za-zА-Яа-я]{3})$/);const n=x?Number(x[1].replace(',','.')):NaN;
+  if(s.step==='reward') { const x=text.match(/^(\d+(?:[.,]\d{1,2})?)\s*([A-Za-zА-Яа-я]{3})$/);const n=x?Number(x[1].replace(',','.')):NaN;
     if(!x||!Number.isFinite(n)||n<=0||n>1e9)return send(chat,'Формат: 25 EUR или 100 RUB.');d.amount=n;d.currency=x[2].toUpperCase();s.step='title';await session(id,s);return send(chat,'Краткое описание заказа (или «-»).'); }
   if(s.step==='title') { d.title=text==='-'?'':text.slice(0,200);s.step='description';await session(id,s);return send(chat,'Дополнительные детали (или «-»).'); }
   if(s.step==='description') { d.description=text==='-'?'':text.slice(0,3000);const o=await createOrder(id,d);await session(id,null);
-    return send(chat,\`Заказ опубликован!\\n\${o.city} · \${o.pickup_at_text}\\n\${o.metro_or_district}\\nВознаграждение: \${o.reward_amount} \${o.reward_currency}\\nID: \${o.id}\`,{reply_markup:menu}); }
+    return send(chat,`Заказ опубликован!\n${o.city} · ${o.pickup_at_text}\n${o.metro_or_district}\nВознаграждение: ${o.reward_amount} ${o.reward_currency}\nID: ${o.id}`,{reply_markup:menu}); }
 }
 async function update(u:any) {
   const once=await pool.query('INSERT INTO public.bot_processed_updates(update_id) VALUES($1) ON CONFLICT DO NOTHING RETURNING update_id',[String(u.update_id)]);
@@ -144,8 +144,8 @@ async function update(u:any) {
   }
   if(u.message?.successful_payment) {
     const p=u.message.successful_payment;
-    const r=await pool.query(\`UPDATE public.star_payments SET status='paid',telegram_charge_id=$2,paid_at=now()
-      WHERE payment_payload=$1 AND telegram_id=$3 AND purpose='support' AND status='pending' AND stars=$4 AND $5='XTR' RETURNING id\`,
+    const r=await pool.query(`UPDATE public.star_payments SET status='paid',telegram_charge_id=$2,paid_at=now()
+      WHERE payment_payload=$1 AND telegram_id=$3 AND purpose='support' AND status='pending' AND stars=$4 AND $5='XTR' RETURNING id`,
       [p.invoice_payload,p.telegram_payment_charge_id,String(u.message.from.id),p.total_amount,p.currency]);
     return send(u.message.chat.id,r.rowCount?'Спасибо за донат! ❤️ Ваш вклад помогает развивать проект.':'Платёж получен, но его не удалось автоматически сверить. Обратитесь в поддержку.');
   }
