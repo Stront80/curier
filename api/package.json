@@ -6,8 +6,10 @@
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts",
     "dev": "tsx watch src/server.ts",
+    "dev:bot": "tsx watch src/telegram-bot.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "start:bot": "node dist/telegram-bot.js"
   },
   "keywords": [],
   "author": "",
