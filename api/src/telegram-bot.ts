@@ -107,7 +107,14 @@ async function contacts(chat:number,telegramId:number,id:string) {
   return send(chat,`Контакт заказчика: ${u.first_name??''} ${u.last_name??''}\n${link}`,
     {reply_markup:{inline_keyboard:[[{text:'Написать заказчику',url:link}]]}});
 }
-async function donate(chat:number) {
+async function donateMenu(chat:number) {
+  const url=process.env.DONATION_PAYMENT_URL;
+  const rows:any[]=[];
+  if(url) rows.push([{text:'🏦 Ozon Банк / СБП',callback_data:'donate:qr'}]);
+  rows.push([{text:'⭐ 10 звёзд',callback_data:'donate:10'},{text:'⭐ 50 звёзд',callback_data:'donate:50'},{text:'⭐ 100 звёзд',callback_data:'donate:100'}]);
+  await send(chat,'Поддержать проект можно любым удобным способом. Донат добровольный и не влияет на доступ к функциям бота.',{reply_markup:{inline_keyboard:rows}});
+}
+async function donateQr(chat:number) {
   const url=process.env.DONATION_PAYMENT_URL;
   if(!url) return send(chat,'Ссылка для доната пока не настроена. Попробуйте позже.');
   const qrPath=process.env.DONATION_QR_FILE || new URL('../assets/ozon-donate.jpg',import.meta.url);
@@ -122,10 +129,18 @@ async function donate(chat:number) {
     if(!response.ok||!data.ok) throw new Error(data.description??'Telegram sendPhoto failed');
   } catch(e) {
     console.error('Donation QR image error:',e);
-    await send(chat,'Не удалось показать QR-код. Вот ссылка для добровольного доната:');
+    await send(chat,'Не удалось показать QR-код. Используйте ссылку ниже:');
   }
   await send(chat,`Ссылка для оплаты через Ozon Банк / СБП:\n${url}\n\nДонат полностью добровольный. Все функции бота доступны бесплатно независимо от поддержки проекта.`);
 }
+async function donateStars(chat:number,telegramId:number,stars:number) {
+  if(![10,50,100].includes(stars)) return;
+  const payload=`donation:${crypto.randomUUID()}`;
+  await pool.query("INSERT INTO public.star_payments(telegram_id,purpose,stars,status,payment_payload) VALUES($1,'support',$2,'pending',$3)",
+    [String(telegramId),stars,payload]);
+  await tg('sendInvoice',{chat_id:chat,title:'Поддержать проект',description:'Добровольный донат на развитие проекта «Курьеры с торговлей». Все функции остаются бесплатными.',payload,provider_token:'',currency:'XTR',prices:[{label:'Добровольный донат',amount:stars}]});
+}
+
 
 async function message(m:any) {
   if(!m.from||m.chat.type!=='private') return;
@@ -135,7 +150,7 @@ async function message(m:any) {
   if(text==='/help'||text==='Помощь / Правила') return send(chat,'Указывайте достоверные данные, не размещайте запрещённые товары и чужие персональные данные. Контакты не видны в общей ленте. Для жалоб обратитесь к администратору.',{reply_markup:menu});
   if(text==='Посмотреть заказы'||text==='/orders') return available(chat);
   if(text==='Мои заказы'||text==='/myorders') return mine(chat,id);
-  if(text==='Поддержать проект'||text==='/donate') return donate(chat);
+  if(text==='Поддержать проект'||text==='/donate') return donateMenu(chat);
   if(text==='Разместить заказ'||text==='/neworder') { await session(id,{step:'city',data:{}}); return send(chat,'Укажите город:'); }
   const s=await getSession(id); if(!s) return send(chat,'Выберите действие в меню.',{reply_markup:menu});
   const d=s.data??{};
@@ -166,7 +181,14 @@ async function update(u:any) {
   if(u.callback_query) {
     const q=u.callback_query,chat=q.message?.chat.id,data=q.data??'';if(!chat)return;
     await tg('answerCallbackQuery',{callback_query_id:q.id});
-    const [action,id]=data.split(':');if(!/^[0-9a-f-]{36}$/i.test(id??''))return;
+    const [action,id]=data.split(':');
+    if(action==='donate') {
+      if(id==='qr') return donateQr(chat);
+      const amount=Number(id);
+      if([10,50,100].includes(amount)) return donateStars(chat,q.from.id,amount);
+      return;
+    }
+    if(!/^[0-9a-f-]{36}$/i.test(id??''))return;
     if(action==='take') { try { const customer=await claim(q.from.id,id);await send(chat,'Заказ закреплён за вами. Контакты доступны в разделе «Мои заказы».');await send(customer,'Ваш заказ получил курьер. Откройте «Мои заказы» для проверки статуса.'); } catch(e) { await send(chat,e instanceof Error?e.message:'Не удалось взять заказ.'); } }
     if(action==='contact') await contacts(chat,q.from.id,id);
     return;
