@@ -10,7 +10,8 @@ The bot runs as a separate Node process beside the Express API and Mini App. It 
 - Atomic direct claim using a PostgreSQL transaction and row locks. Only one courier can claim an order.
 - Customer and courier notifications after assignment.
 - Contact reveal only to the courier assigned to that order. It is free during the test phase.
-- Voluntary Ozon Bank / SBP donations: the bot sends the supplied QR image and payment link. Donations are optional and do not gate any feature.
+- Voluntary donations through two methods: Ozon Bank / SBP QR and payment link, plus Telegram Stars (10, 50 or 100 XTR).
+- Telegram Stars invoices are validated in pre-checkout; successful payments are stored in `star_payments` with Telegram charge ID and paid timestamp. Donations are optional and do not gate any feature.
 
 ## Not implemented yet
 
@@ -23,10 +24,10 @@ The bot runs as a separate Node process beside the Express API and Mini App. It 
 
 1. Review and apply api/migrations/006_telegram_bot_phase1.sql after a verified backup.
 2. Build: cd api && npm ci && npm run build.
-3. Configure TELEGRAM_BOT_TOKEN, DATABASE_URL, RUN_TELEGRAM_BOT=true, DONATION_PAYMENT_URL and DONATION_QR_FILE in the bot process environment. Place the supplied Ozon Bank QR image at the path configured by DONATION_QR_FILE (JPEG). Use the same PostgreSQL database as the API. Never expose the bot token to frontend variables.
+3. Configure TELEGRAM_BOT_TOKEN, DATABASE_URL, RUN_TELEGRAM_BOT=true, DONATION_PAYMENT_URL and DONATION_QR_FILE in the bot process environment. Place the supplied Ozon Bank QR image at the path configured by DONATION_QR_FILE (JPEG). The Stars option is available in the same donation menu; it requires no separate payment-provider token. Use the same PostgreSQL database as the API. Never expose the bot token to frontend variables.
 4. Run node dist/telegram-bot.js as a dedicated systemd service. Keep exactly one active long-polling instance per token.
 5. Test with two Telegram accounts: create an order, check that public cards contain no contacts, claim it from another account, verify both notifications and verify only the assigned courier can view contacts.
-6. Test the donation button: verify the QR image and Ozon Bank link are delivered. Confirm that all bot functions remain available without donating.
+6. Test both donation methods: verify the QR image and Ozon Bank link are delivered; make a small Telegram Stars test donation and verify its `star_payments` record changes from pending to paid with a charge ID. Confirm that all bot functions remain available without donating.
 
 The donation QR and link are configured by the operator. Donations are voluntary and do not unlock or restrict any bot feature. The bot is designed for private chats. The API process and bot process are separate services.
 
