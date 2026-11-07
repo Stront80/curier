@@ -164,9 +164,7 @@ async function message(m:any) {
   if(s.step==='description') { d.description=text==='-'?'':text.slice(0,3000);const o=await createOrder(id,d);await session(id,null);
     return send(chat,`Заказ опубликован!\n${o.city} · ${o.pickup_at_text}\n${o.metro_or_district}\nВознаграждение: ${o.reward_amount} ${o.reward_currency}\nID: ${o.id}`,{reply_markup:menu}); }
 }
-async function update(u:any) {
-  const once=await pool.query('INSERT INTO public.bot_processed_updates(update_id) VALUES($1) ON CONFLICT DO NOTHING RETURNING update_id',[String(u.update_id)]);
-  if(!once.rowCount)return;
+async function processUpdate(u:any) {
   if(u.pre_checkout_query) {
     const q=u.pre_checkout_query,p=await pool.query("SELECT telegram_id,stars,status FROM public.star_payments WHERE payment_payload=$1 AND purpose='support'",[q.invoice_payload]);
     const ok=!!p.rowCount&&p.rows[0].telegram_id===String(q.from.id)&&p.rows[0].stars===q.total_amount&&q.currency==='XTR'&&p.rows[0].status==='pending';
@@ -174,10 +172,20 @@ async function update(u:any) {
   }
   if(u.message?.successful_payment) {
     const p=u.message.successful_payment;
-    const r=await pool.query(`UPDATE public.star_payments SET status='paid',telegram_charge_id=$2,paid_at=now()
-      WHERE payment_payload=$1 AND telegram_id=$3 AND purpose='support' AND status='pending' AND stars=$4 AND $5='XTR' RETURNING id`,
-      [p.invoice_payload,p.telegram_payment_charge_id,String(u.message.from.id),p.total_amount,p.currency]);
-    return send(u.message.chat.id,r.rowCount?'Спасибо за донат! ❤️ Ваш вклад помогает развивать проект.':'Платёж получен, но его не удалось автоматически сверить. Обратитесь в поддержку.');
+    const params=[p.invoice_payload,String(u.message.from.id),p.total_amount,p.currency,p.telegram_payment_charge_id];
+    const r=await pool.query(`UPDATE public.star_payments SET status='paid',telegram_charge_id=$5,paid_at=COALESCE(paid_at,now())
+      WHERE payment_payload=$1 AND telegram_id=$2 AND purpose='support' AND status='pending' AND stars=$3 AND $4='XTR'
+      RETURNING id`,params);
+    let paid=Boolean(r.rowCount);
+    // A retry may arrive after the database update succeeded but the thank-you message failed.
+    // Treat the same Telegram charge as already reconciled instead of reporting a false failure.
+    if(!paid) {
+      const existing=await pool.query(`SELECT 1 FROM public.star_payments
+        WHERE payment_payload=$1 AND telegram_id=$2 AND purpose='support' AND status='paid'
+          AND stars=$3 AND $4='XTR' AND telegram_charge_id=$5 LIMIT 1`,params);
+      paid=Boolean(existing.rowCount);
+    }
+    return send(u.message.chat.id,paid?'Спасибо за донат! ❤️ Ваш вклад помогает развивать проект.':'Платёж получен, но его не удалось автоматически сверить. Обратитесь в поддержку.');
   }
   if(u.callback_query) {
     const q=u.callback_query,chat=q.message?.chat.id,data=q.data??'';if(!chat)return;
@@ -196,6 +204,15 @@ async function update(u:any) {
   }
   if(u.message) await message(u.message);
 }
+
+// Process first, persist the update ID only after every required action succeeds.
+// Failed updates remain unacknowledged and can be retried by Telegram polling.
+async function update(u:any) {
+  const seen=await pool.query('SELECT 1 FROM public.bot_processed_updates WHERE update_id=$1',[String(u.update_id)]);
+  if(seen.rowCount)return;
+  await processUpdate(u);
+  await pool.query('INSERT INTO public.bot_processed_updates(update_id) VALUES($1) ON CONFLICT DO NOTHING',[String(u.update_id)]);
+}
 export async function runTelegramBot() {
   if(!token||!process.env.DATABASE_URL)throw new Error('TELEGRAM_BOT_TOKEN and DATABASE_URL are required');
   await tg('deleteWebhook',{drop_pending_updates:false});
@@ -203,7 +220,16 @@ export async function runTelegramBot() {
   while(true) {
     try {
       const updates=await tg('getUpdates',{offset,timeout:25,allowed_updates:['message','callback_query','pre_checkout_query']}) as any[];
-      for(const u of updates){offset=Math.max(offset,u.update_id+1);try{await update(u);}catch(e){console.error('Update failed:',e);}}
+      for(const u of updates) {
+        try {
+          await update(u);
+          // Acknowledge an update to Telegram only after it has been processed and persisted.
+          offset=u.update_id+1;
+        } catch(e) {
+          console.error('Update failed; will retry this update:',e);
+          break;
+        }
+      }
     } catch(e) { console.error('Telegram polling error:',e);await wait(3000); }
   }
 }
