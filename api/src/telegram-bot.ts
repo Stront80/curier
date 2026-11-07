@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import pg from 'pg';
 import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -117,7 +118,7 @@ async function donateMenu(chat:number) {
 async function donateQr(chat:number) {
   const url=process.env.DONATION_PAYMENT_URL;
   if(!url) return send(chat,'Ссылка для доната пока не настроена. Попробуйте позже.');
-  const qrPath=process.env.DONATION_QR_FILE || new URL('../assets/ozon-donate.jpg',import.meta.url);
+  const qrPath=resolve(process.env.DONATION_QR_FILE || 'assets/ozon-donate.jpg');
   try {
     const photo=await readFile(qrPath);
     const form=new FormData();
