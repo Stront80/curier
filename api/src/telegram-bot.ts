@@ -116,7 +116,7 @@ async function donate(chat:number) {
     const form=new FormData();
     form.append('chat_id',String(chat));
     form.append('caption','Добровольная поддержка проекта «Курьеры с торговлей» ❤️ Донат не обязателен и не влияет на доступ к функциям бота.');
-    form.append('photo',new Blob([photo],{type:'image/jpeg'}),'ozon-donate.jpg');
+    form.append('photo',new Blob([new Uint8Array(photo)],{type:'image/jpeg'}),'ozon-donate.jpg');
     const response=await fetch(`${base}/sendPhoto`,{method:'POST',body:form,signal:AbortSignal.timeout(35_000)});
     const data=await response.json() as any;
     if(!response.ok||!data.ok) throw new Error(data.description??'Telegram sendPhoto failed');
